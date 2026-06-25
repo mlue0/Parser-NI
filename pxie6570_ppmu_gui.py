@@ -5,16 +5,15 @@
 цифрового паттерн-генератора National Instruments PXIe-6570:
 
     1. Открытие сессии NI-Digital Pattern Driver.
-    2. Переключение выбранных каналов в режим PPMU.
+    2. Переключение канала в режим PPMU.
     3. Настройка лимита тока и подача напряжения на DUT.
-    4. Измерение тока на каждом канале и отображение результатов в GUI.
-    5. Отключение каналов и закрытие сессии.
+    4. Измерение тока и отображение результата в GUI.
+    5. Отключение канала и закрытие сессии.
 
 Зависимости
 -----------
-- Python 3.10–3.13 (Kivy; на Windows нет wheel для 3.14)
+- Python 3.10+
 - Пакет ``nidigital`` (``pip install -r requirements.txt``)
-- Пакет ``kivy`` (GUI)
 - Установленный NI-Digital Pattern Driver (см. ni.com/downloads)
 - Плата PXIe-6570, видимая в NI MAX
 
@@ -29,11 +28,11 @@
 -------------------------
 ``resource_name`` (например ``PXI-6570-1``) используется **только** при
 создании ``nidigital.Session``. Каналы в API задаются **индексом** —
-``session.channels[0]`` или ``session.channels[[0, 1, 2]]``, а **не** строкой
-``"{resource_name}/0"``.
+``session.channels[0]``, а **не** строкой ``"{resource_name}/0"``.
 
-Формат поля «Каналы»: ``0``, ``0,2,5``, ``0-3``, ``0:3`` (как в NI-Digital
-Repeated Capabilities).
+Строка вида ``PXI-6570-1/0`` вызывает ошибку парсера repeated capabilities,
+потому что символ ``-`` интерпретируется как диапазон (``0-2``), а в имени
+ресурса дефисов несколько.
 
 См. документацию NI-Digital Repeated Capabilities:
 https://nidigital.readthedocs.io/en/stable/rep_caps.html
@@ -46,39 +45,27 @@ https://nidigital.readthedocs.io/en/stable/rep_caps.html
 
 from __future__ import annotations
 
-import re
 import threading
 import time
-from typing import TYPE_CHECKING
-
-from kivy.app import App
-from kivy.clock import Clock
-from kivy.core.window import Window
-from kivy.metrics import dp
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.button import Button
-from kivy.uix.checkbox import CheckBox
-from kivy.uix.gridlayout import GridLayout
-from kivy.uix.label import Label
-from kivy.uix.popup import Popup
-from kivy.uix.scrollview import ScrollView
-from kivy.uix.textinput import TextInput
+import tkinter as tk
+from tkinter import messagebox, ttk
 
 try:
     import nidigital
 except ImportError:
     nidigital = None
 
-if TYPE_CHECKING:
-    from nidigital import Session
-
 # Имя ресурса прибора в NI MAX (логическое или физическое, например PXI1Slot2).
 DEFAULT_RESOURCE = "PXI-6570-1"
 
-# Значения по умолчанию для полей ввода.
-DEFAULT_CHANNELS = "0"
-DEFAULT_VOLTAGE = "5.0"
-DEFAULT_CURRENT_LIMIT = "0.01"
+# Индекс канала PPMU (0 — первый канал). Передаётся в session.channels[index].
+CHANNEL_INDEX = 0
+
+# Напряжение, подаваемое PPMU на DUT, в вольтах.
+VOLTAGE_V = 5.0
+
+# Лимит тока при подаче напряжения, в амперах.
+CURRENT_LIMIT_A = 0.01
 
 # Время интегрирования измерения PPMU, в секундах (4 мкс — типичное значение NI).
 APERTURE_TIME_S = 4e-6
@@ -86,146 +73,78 @@ APERTURE_TIME_S = 4e-6
 # Пауза после включения источника перед измерением, в секундах.
 SETTLING_TIME_S = 0.01
 
-# Результат измерения: (номер канала, ток в амперах).
-ChannelMeasurement = tuple[int, float]
 
+def configure_ppmu_channel(session: nidigital.Session, channel_index: int) -> None:
+    """Настраивает канал PPMU: режим, лимит тока, напряжение и включает источник.
 
-def parse_channels(text: str) -> list[int]:
-    """Разбирает строку с номерами каналов в список индексов.
-
-    Поддерживаемые форматы (как в nidigital repeated capabilities):
-
-    - один канал: ``0``
-    - список: ``0,2,5``
-    - диапазон через дефис: ``0-3`` → 0, 1, 2, 3
-    - диапазон через двоеточие: ``0:3`` → 0, 1, 2, 3
-
-    Args:
-        text: Строка из поля ввода каналов.
-
-    Returns:
-        Отсортированный список уникальных индексов каналов.
-
-    Raises:
-        ValueError: Пустая строка или неверный формат.
-    """
-    text = text.strip()
-    if not text:
-        raise ValueError("Укажите номера каналов (например: 0 или 0,1,2 или 0-3).")
-
-    channels: list[int] = []
-    for part in re.split(r"\s*,\s*", text):
-        part = part.strip()
-        if not part:
-            continue
-
-        range_match = re.fullmatch(r"(\d+)\s*[-:]\s*(\d+)", part)
-        if range_match:
-            start = int(range_match.group(1))
-            end = int(range_match.group(2))
-            if end < start:
-                raise ValueError(f"Неверный диапазон каналов: {part}")
-            channels.extend(range(start, end + 1))
-            continue
-
-        if not part.isdigit():
-            raise ValueError(f"Неверный номер канала: {part!r}")
-        channels.append(int(part))
-
-    if not channels:
-        raise ValueError("Укажите хотя бы один канал.")
-
-    return sorted(set(channels))
-
-
-def parse_positive_float(text: str, field_name: str) -> float:
-    """Разбирает положительное число с плавающей точкой из поля ввода.
-
-    Args:
-        text: Строка из TextInput.
-        field_name: Имя поля для сообщения об ошибке.
-
-    Returns:
-        Разобранное значение.
-
-    Raises:
-        ValueError: Пустая строка, не число или значение ≤ 0.
-    """
-    text = text.strip().replace(",", ".")
-    if not text:
-        raise ValueError(f"Укажите {field_name}.")
-    try:
-        value = float(text)
-    except ValueError as exc:
-        raise ValueError(f"{field_name}: ожидается число, получено {text!r}.") from exc
-    if value <= 0:
-        raise ValueError(f"{field_name} должно быть больше нуля.")
-    return value
-
-
-def configure_ppmu_channels(
-    session: Session,
-    channel_indices: list[int],
-    voltage_v: float,
-    current_limit_a: float,
-) -> None:
-    """Настраивает PPMU на указанных каналах и включает источник напряжения.
+    Последовательность настройки соответствует типовому сценарию «source voltage,
+    measure current» из примера NI ``nidigital_ppmu_source_and_measure.py``.
 
     Args:
         session: Открытая сессия NI-Digital.
-        channel_indices: Индексы каналов (не имена ресурса).
-        voltage_v: Подаваемое напряжение, В.
-        current_limit_a: Лимит тока, А.
+        channel_index: Индекс канала (0 … channel_count − 1), не имя ресурса.
 
     Note:
-        Свойства задаются пакетно через ``session.channels[indices]``.
-        ``ppmu_source()`` применяет настройки ко всем указанным каналам.
+        ``ppmu_source()`` автоматически переключает ``selected_function`` в PPMU
+        и начинает подачу напряжения. Изменения параметров источника вступают
+        в силу только после повторного вызова ``ppmu_source()``.
     """
-    ch = session.channels[channel_indices]
+    ch = session.channels[channel_index]
 
+    # Подключить канал к PPMU (отключить цифровой драйвер и active load).
     ch.selected_function = nidigital.SelectedFunction.PPMU
+
+    # Режим источника: постоянное напряжение (DC Voltage).
     ch.ppmu_output_function = nidigital.PPMUOutputFunction.VOLTAGE
+
     ch.ppmu_aperture_time = APERTURE_TIME_S
     ch.ppmu_aperture_time_units = nidigital.PPMUApertureTimeUnits.SECONDS
 
-    # Проверка поддержки — по первому каналу (одинакова для всей платы).
-    if session.channels[channel_indices[0]].ppmu_current_limit_supported:
-        ch.ppmu_current_limit = current_limit_a
+    # PXIe-6570/6571: только ppmu_current_limit_range, без ppmu_current_limit.
+    if ch.ppmu_current_limit_supported:
+        ch.ppmu_current_limit = CURRENT_LIMIT_A
     else:
-        ch.ppmu_current_limit_range = current_limit_a
+        ch.ppmu_current_limit_range = CURRENT_LIMIT_A
 
-    ch.ppmu_voltage_level = voltage_v
+    ch.ppmu_voltage_level = VOLTAGE_V
     ch.ppmu_source()
+
+    # Дать цепи установиться перед измерением.
     time.sleep(SETTLING_TIME_S)
 
 
-def measure_channels_current(
-    session: Session,
-    channel_indices: list[int],
-) -> list[ChannelMeasurement]:
-    """Измеряет ток PPMU на каждом из указанных каналов.
+def measure_channel_current(session: nidigital.Session, channel_index: int) -> float:
+    """Выполняет одно измерение тока PPMU на указанном канале.
 
     Args:
-        session: Открытая сессия с активным источником PPMU.
-        channel_indices: Индексы каналов для измерения.
+        session: Открытая сессия NI-Digital с уже активным источником PPMU.
+        channel_index: Индекс канала для измерения.
 
     Returns:
-        Список пар (номер канала, ток в амперах) в порядке ``channel_indices``.
+        Измеренный ток в амперах.
+
+    Note:
+        ``ppmu_measure`` можно вызывать при любом ``selected_function``;
+        для измерения тока канал должен быть в режиме подачи напряжения или тока.
     """
-    values = session.channels[channel_indices].ppmu_measure(
+    values = session.channels[channel_index].ppmu_measure(
         nidigital.PPMUMeasurementType.CURRENT
     )
-    return list(zip(channel_indices, values))
+    return values[0]
 
 
-def disconnect_channels(session: Session, channel_indices: list[int]) -> None:
-    """Отключает указанные каналы от PPMU.
+def disconnect_channel(session: nidigital.Session, channel_index: int) -> None:
+    """Отключает канал от PPMU и размыкает переключатели прибора.
 
     Args:
         session: Открытая сессия NI-Digital.
-        channel_indices: Индексы каналов для отключения.
+        channel_index: Индекс канала для отключения.
+
+    Note:
+        ``DISCONNECT`` останавливает подачу PPMU и электрически отсоединяет
+        канал от методов прибора (рекомендуется перед закрытием сессии).
     """
-    session.channels[channel_indices].selected_function = (
+    session.channels[channel_index].selected_function = (
         nidigital.SelectedFunction.DISCONNECT
     )
 
@@ -234,331 +153,197 @@ def build_session_options(simulate: bool) -> str:
     """Формирует строку опций для конструктора ``nidigital.Session``.
 
     Args:
-        simulate: Если True — работа без реального оборудования.
+        simulate: Если True — работа без реального оборудования (встроенный
+            симулятор драйвера с моделью 6570).
 
     Returns:
         Строка опций IVI или пустая строка для работы с реальным прибором.
+
+    Example:
+        >>> build_session_options(True)
+        'Simulate=1, DriverSetup=Model:6570'
     """
     if simulate:
         return "Simulate=1, DriverSetup=Model:6570"
     return ""
 
 
-def run_measurement(
-    resource_name: str,
-    simulate: bool,
-    channel_indices: list[int],
-    voltage_v: float,
-    current_limit_a: float,
-) -> list[ChannelMeasurement]:
-    """Выполняет полный цикл измерения на всех указанных каналах.
+def run_measurement(resource_name: str, simulate: bool) -> float:
+    """Выполняет полный цикл измерения: сессия → PPMU → измерение → закрытие.
+
+    Контекстный менеджер ``with nidigital.Session(...)`` гарантирует закрытие
+    сессии и освобождение ресурсов драйвера даже при исключении.
 
     Args:
-        resource_name: Имя ресурса из NI MAX.
-        simulate: Режим симуляции драйвера.
-        channel_indices: Список индексов каналов.
-        voltage_v: Подаваемое напряжение, В.
-        current_limit_a: Лимит тока, А.
+        resource_name: Имя ресурса из NI MAX (например ``PXI-6570-1``).
+        simulate: Использовать режим симуляции драйвера.
 
     Returns:
-        Результаты измерения для каждого канала.
+        Измеренный ток на канале ``CHANNEL_INDEX``, в амперах.
 
     Raises:
-        nidigital.errors.DriverError: Ошибка драйвера NI-Digital.
+        nidigital.errors.DriverError: Ошибка драйвера (прибор не найден,
+            неверные параметры, занят другим процессом и т.д.).
+        Exception: Любые прочие ошибки Python/NI (пробрасываются в GUI).
     """
     options = build_session_options(simulate)
 
     with nidigital.Session(resource_name=resource_name, options=options) as session:
-        configure_ppmu_channels(
-            session, channel_indices, voltage_v, current_limit_a
-        )
-        results = measure_channels_current(session, channel_indices)
-        disconnect_channels(session, channel_indices)
-        return results
+        configure_ppmu_channel(session, CHANNEL_INDEX)
+        current_a = measure_channel_current(session, CHANNEL_INDEX)
+        disconnect_channel(session, CHANNEL_INDEX)
+        return current_a
 
 
-def format_measurements(results: list[ChannelMeasurement]) -> str:
-    """Форматирует результаты измерений для отображения в GUI.
+class PXIe6570App(tk.Tk):
+    """Главное окно приложения для измерения тока PPMU PXIe-6570.
 
-    Args:
-        results: Список пар (канал, ток в амперах).
+    Измерение выполняется в фоновом потоке, чтобы не блокировать главный
+    цикл Tkinter (event loop). Обновление виджетов из рабочего потока
+    выполняется через ``self.after(0, ...)`` — потокобезопасный способ
+    для Tkinter.
 
-    Returns:
-        Многострочная строка с результатами по каждому каналу.
+    Attributes:
+        resource_var: Имя ресурса прибора (NI MAX).
+        simulate_var: Флаг режима симуляции без оборудования.
+        status_var: Текстовый статус операции.
+        current_var: Отформатированный результат измерения тока.
+        measure_btn: Кнопка запуска измерения.
+        _worker: Ссылка на текущий поток измерения (или None).
     """
-    lines = []
-    for channel, current_a in results:
-        lines.append(
-            f"Канал {channel}: {current_a * 1e3:.6f} мА  ({current_a:.9f} А)"
-        )
-    return "\n".join(lines)
 
-
-class SectionBox(BoxLayout):
-    """Вертикальный блок с заголовком секции (аналог LabelFrame в Tkinter)."""
-
-    def __init__(self, title: str, **kwargs) -> None:
-        super().__init__(orientation="vertical", spacing=dp(6), **kwargs)
-        self.add_widget(
-            Label(
-                text=title,
-                size_hint_y=None,
-                height=dp(28),
-                bold=True,
-                color=(0.85, 0.85, 0.9, 1),
-            )
-        )
-        self.content = BoxLayout(
-            orientation="vertical",
-            spacing=dp(4),
-            padding=(dp(8), dp(4), dp(8), dp(8)),
-        )
-        self.add_widget(self.content)
-
-
-class PXIe6570App(App):
-    """Kivy-приложение для измерения тока PPMU PXIe-6570."""
-
-    def __init__(self, **kwargs) -> None:
-        super().__init__(**kwargs)
-        self.title = "PXIe-6570 PPMU — измерение тока"
+    def __init__(self) -> None:
+        super().__init__()
+        self.title("PXIe-6570 PPMU — измерение тока")
+        self.resizable(False, False)
         self._worker: threading.Thread | None = None
 
-    def build(self):
-        """Создаёт корневой виджет и возвращает его Kivy."""
-        Window.size = (dp(500), dp(560))
-        Window.minimum_width = dp(420)
-        Window.minimum_height = dp(480)
+        self._build_ui()
 
-        root = BoxLayout(
-            orientation="vertical",
-            padding=dp(16),
-            spacing=dp(10),
-        )
+    def _build_ui(self) -> None:
+        """Создаёт и размещает все элементы интерфейса."""
+        pad = {"padx": 10, "pady": 5}
 
-        root.add_widget(
-            Label(
-                text="PXIe-6570 PPMU",
-                size_hint_y=None,
-                height=dp(36),
-                font_size=dp(20),
-                bold=True,
-            )
+        frame = ttk.Frame(self, padding=10)
+        frame.grid(row=0, column=0, sticky="nsew")
+
+        ttk.Label(frame, text="Resource name:").grid(row=0, column=0, sticky="w", **pad)
+        self.resource_var = tk.StringVar(value=DEFAULT_RESOURCE)
+        ttk.Entry(frame, textvariable=self.resource_var, width=28).grid(
+            row=0, column=1, **pad
         )
 
-        resource_row = GridLayout(cols=2, spacing=dp(8), size_hint_y=None, height=dp(40))
-        resource_row.add_widget(
-            Label(text="Resource name:", size_hint_x=None, width=dp(130), halign="left")
-        )
-        self.resource_input = TextInput(
-            text=DEFAULT_RESOURCE,
-            multiline=False,
-            size_hint_x=1,
-        )
-        resource_row.add_widget(self.resource_input)
-        root.add_widget(resource_row)
+        self.simulate_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            frame,
+            text="Режим симуляции (без оборудования)",
+            variable=self.simulate_var,
+        ).grid(row=1, column=0, columnspan=2, sticky="w", **pad)
 
-        simulate_row = BoxLayout(
-            orientation="horizontal",
-            spacing=dp(8),
-            size_hint_y=None,
-            height=dp(36),
+        params = ttk.LabelFrame(frame, text="Параметры канала 0", padding=8)
+        params.grid(row=2, column=0, columnspan=2, sticky="ew", **pad)
+        ttk.Label(params, text="Режим: PPMU").grid(row=0, column=0, sticky="w", pady=2)
+        ttk.Label(params, text=f"Напряжение: {VOLTAGE_V} В").grid(
+            row=1, column=0, sticky="w", pady=2
         )
-        self.simulate_checkbox = CheckBox(active=False, size_hint_x=None, width=dp(32))
-        simulate_row.add_widget(self.simulate_checkbox)
-        simulate_row.add_widget(
-            Label(text="Режим симуляции (без оборудования)", halign="left", valign="middle")
-        )
-        root.add_widget(simulate_row)
-
-        params_section = SectionBox(title="Параметры PPMU", size_hint_y=None)
-        params_section.height = dp(200)
-        params_grid = GridLayout(cols=2, spacing=dp(8), size_hint_y=None)
-        params_grid.bind(minimum_height=params_grid.setter("height"))
-
-        params_grid.add_widget(Label(text="Каналы:", halign="left", size_hint_y=None, height=dp(36)))
-        self.channels_input = TextInput(
-            text=DEFAULT_CHANNELS,
-            multiline=False,
-            size_hint_y=None,
-            height=dp(36),
-            hint_text="0,1,2 или 0-3",
-        )
-        params_grid.add_widget(self.channels_input)
-
-        params_grid.add_widget(Label(text="Напряжение, В:", halign="left", size_hint_y=None, height=dp(36)))
-        self.voltage_input = TextInput(
-            text=DEFAULT_VOLTAGE,
-            multiline=False,
-            size_hint_y=None,
-            height=dp(36),
-        )
-        params_grid.add_widget(self.voltage_input)
-
-        params_grid.add_widget(
-            Label(text="Лимит тока, А:", halign="left", size_hint_y=None, height=dp(36))
-        )
-        self.current_limit_input = TextInput(
-            text=DEFAULT_CURRENT_LIMIT,
-            multiline=False,
-            size_hint_y=None,
-            height=dp(36),
-        )
-        params_grid.add_widget(self.current_limit_input)
-
-        params_section.content.add_widget(
-            Label(text="Режим: PPMU (source voltage, measure current)", size_hint_y=None, height=dp(24))
-        )
-        params_section.content.add_widget(params_grid)
-        root.add_widget(params_section)
-
-        self.measure_btn = Button(
-            text="Измерить ток",
-            size_hint_y=None,
-            height=dp(44),
-            background_color=(0.2, 0.55, 0.85, 1),
-        )
-        self.measure_btn.bind(on_press=self._on_measure)
-        root.add_widget(self.measure_btn)
-
-        result_section = SectionBox(title="Результат", size_hint_y=1)
-        self.status_label = Label(
-            text="Готово",
-            size_hint_y=None,
-            height=dp(24),
-            halign="left",
-            color=(0.75, 0.75, 0.8, 1),
-        )
-        self.results_label = Label(
-            text="—",
-            size_hint_y=None,
-            halign="left",
-            valign="top",
-            font_size=dp(15),
-            bold=True,
-        )
-        self.results_label.bind(
-            texture_size=lambda inst, _size: setattr(inst, "height", inst.texture_size[1])
-        )
-        self.results_label.bind(
-            size=lambda inst, val: setattr(inst, "text_size", (val[0], None))
+        ttk.Label(params, text=f"Лимит тока: {CURRENT_LIMIT_A} А").grid(
+            row=2, column=0, sticky="w", pady=2
         )
 
-        results_scroll = ScrollView(size_hint_y=1)
-        results_scroll.add_widget(self.results_label)
+        self.measure_btn = ttk.Button(
+            frame, text="Измерить ток", command=self._on_measure
+        )
+        self.measure_btn.grid(row=3, column=0, columnspan=2, **pad)
 
-        result_section.content.add_widget(self.status_label)
-        result_section.content.add_widget(results_scroll)
-        root.add_widget(result_section)
+        result_frame = ttk.LabelFrame(frame, text="Результат", padding=8)
+        result_frame.grid(row=4, column=0, columnspan=2, sticky="ew", **pad)
+
+        self.status_var = tk.StringVar(value="Готово")
+        ttk.Label(result_frame, textvariable=self.status_var).grid(
+            row=0, column=0, sticky="w", pady=2
+        )
+
+        self.current_var = tk.StringVar(value="—")
+        ttk.Label(
+            result_frame,
+            textvariable=self.current_var,
+            font=("Segoe UI", 16, "bold"),
+        ).grid(row=1, column=0, sticky="w", pady=4)
 
         if nidigital is None:
-            self.status_label.text = (
+            self.status_var.set(
                 "Ошибка: установите пакет nidigital (pip install -r requirements.txt)"
             )
-            self.measure_btn.disabled = True
+            self.measure_btn.state(["disabled"])
 
-        return root
+    def _on_measure(self) -> None:
+        """Обработчик нажатия кнопки «Измерить ток».
 
-    def _collect_inputs(self) -> tuple[str, list[int], float, float]:
-        """Читает и проверяет все поля ввода перед измерением.
-
-        Returns:
-            Кортеж (resource_name, channel_indices, voltage_v, current_limit_a).
-
-        Raises:
-            ValueError: Некорректные данные в любом из полей.
+        Проверяет ввод, блокирует повторный запуск и стартует фоновый поток.
         """
-        resource = self.resource_input.text.strip()
-        if not resource:
-            raise ValueError("Укажите resource name прибора.")
-
-        channels = parse_channels(self.channels_input.text)
-        voltage_v = parse_positive_float(self.voltage_input.text, "напряжение")
-        current_limit_a = parse_positive_float(
-            self.current_limit_input.text, "лимит тока"
-        )
-        return resource, channels, voltage_v, current_limit_a
-
-    def _on_measure(self, *_args) -> None:
-        """Обработчик нажатия кнопки «Измерить ток»."""
         if self._worker and self._worker.is_alive():
             return
 
-        try:
-            resource, channels, voltage_v, current_limit_a = self._collect_inputs()
-        except ValueError as exc:
-            self._show_error("Ошибка ввода", str(exc))
+        resource = self.resource_var.get().strip()
+        if not resource:
+            messagebox.showerror("Ошибка", "Укажите resource name прибора.")
             return
 
-        self.measure_btn.disabled = True
-        self.status_label.text = "Выполняется измерение…"
-        self.results_label.text = "—"
+        self.measure_btn.state(["disabled"])
+        self.status_var.set("Выполняется измерение…")
+        self.current_var.set("—")
 
-        simulate = self.simulate_checkbox.active
         self._worker = threading.Thread(
             target=self._measure_worker,
-            args=(resource, simulate, channels, voltage_v, current_limit_a),
+            args=(resource, self.simulate_var.get()),
             daemon=True,
         )
         self._worker.start()
 
-    def _measure_worker(
-        self,
-        resource_name: str,
-        simulate: bool,
-        channel_indices: list[int],
-        voltage_v: float,
-        current_limit_a: float,
-    ) -> None:
-        """Фоновый поток измерения."""
+    def _measure_worker(self, resource_name: str, simulate: bool) -> None:
+        """Рабочий поток: вызывает ``run_measurement`` и передаёт результат в GUI.
+
+        Args:
+            resource_name: Имя ресурса прибора из поля ввода.
+            simulate: Значение флага симуляции из чекбокса.
+
+        Note:
+            Не обращается к виджетам напрямую — только через ``self.after``.
+        """
         try:
-            results = run_measurement(
-                resource_name,
-                simulate,
-                channel_indices,
-                voltage_v,
-                current_limit_a,
-            )
+            current_a = run_measurement(resource_name, simulate)
         except Exception as exc:
-            Clock.schedule_once(lambda _dt: self._on_measure_failed(str(exc)), 0)
+            self.after(0, self._on_measure_failed, str(exc))
             return
 
-        Clock.schedule_once(lambda _dt, r=results: self._on_measure_done(r), 0)
+        self.after(0, self._on_measure_done, current_a)
 
-    def _on_measure_done(self, results: list[ChannelMeasurement]) -> None:
-        """Обновляет GUI после успешного измерения."""
-        self.results_label.text = format_measurements(results)
-        self.status_label.text = "Измерение завершено, сессия закрыта"
-        self.measure_btn.disabled = False
+    def _on_measure_done(self, current_a: float) -> None:
+        """Обновляет GUI после успешного измерения (вызывается из главного потока).
+
+        Args:
+            current_a: Измеренный ток в амперах.
+        """
+        self.current_var.set(f"{current_a * 1e3:.6f} мА  ({current_a:.9f} А)")
+        self.status_var.set("Измерение завершено, сессия закрыта")
+        self.measure_btn.state(["!disabled"])
 
     def _on_measure_failed(self, message: str) -> None:
-        """Обновляет GUI и показывает диалог при ошибке."""
-        self.status_label.text = "Ошибка"
-        self.results_label.text = "—"
-        self.measure_btn.disabled = False
-        self._show_error("Ошибка NI-Digital", message)
+        """Обновляет GUI и показывает диалог при ошибке (главный поток).
 
-    @staticmethod
-    def _show_error(title: str, message: str) -> None:
-        """Показывает модальное окно с текстом ошибки."""
-        content = BoxLayout(orientation="vertical", spacing=dp(12), padding=dp(12))
-        content.add_widget(Label(text=message, text_size=(dp(360), None)))
-        close_btn = Button(text="OK", size_hint_y=None, height=dp(40))
-        popup = Popup(
-            title=title,
-            content=content,
-            size_hint=(None, None),
-            size=(dp(400), dp(200)),
-            auto_dismiss=False,
-        )
-        close_btn.bind(on_press=popup.dismiss)
-        content.add_widget(close_btn)
-        popup.open()
+        Args:
+            message: Текст исключения от драйвера или Python.
+        """
+        self.status_var.set("Ошибка")
+        self.current_var.set("—")
+        self.measure_btn.state(["!disabled"])
+        messagebox.showerror("Ошибка NI-Digital", message)
 
 
 def main() -> None:
-    """Точка входа: создаёт приложение и запускает главный цикл Kivy."""
-    PXIe6570App().run()
+    """Точка входа: создаёт приложение и запускает главный цикл Tkinter."""
+    app = PXIe6570App()
+    app.mainloop()
 
 
 if __name__ == "__main__":
