@@ -1,0 +1,2 @@
+nidigital~=1.4.9
+kivy~=2.3.0
