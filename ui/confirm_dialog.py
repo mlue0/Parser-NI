@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pydantic import BaseModel
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog,
@@ -13,34 +14,45 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from models.crystal_data import CrystalData
+from logs.setup import get_logger
+
+logger = get_logger(__name__)
 
 
 class ConfirmDialog(QDialog):
     """Показывает итоговые данные для подтверждения пользователем."""
 
-    def __init__(self, data: CrystalData, parent=None) -> None:
+    def __init__(self, data: BaseModel, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Подтверждение отправки")
         self.setMinimumSize(560, 480)
         self._build_ui(data)
 
-    def _build_ui(self, data: CrystalData) -> None:
+    def _build_ui(self, data: BaseModel) -> None:
         layout = QVBoxLayout(self)
 
         title = QLabel("Проверьте данные перед отправкой на сервер:")
         title.setWordWrap(True)
         layout.addWidget(title)
 
-        table = QTableWidget(len(data.labeled_values()), 2)
+        # Получаем labeled_values из модели (поддерживает динамические модели)
+        if hasattr(data, "labeled_values") and callable(data.labeled_values):
+            labeled_values = data.labeled_values()
+        else:
+            # Fallback: преобразуем все поля в пары (label, value)
+            logger.warning("Модель не имеет метода labeled_values, используем fallback")
+            data_dict = data.model_dump()
+            labeled_values = [(k, str(v)) for k, v in data_dict.items()]
+
+        table = QTableWidget(len(labeled_values), 2)
         table.setHorizontalHeaderLabels(["Поле", "Значение"])
         table.verticalHeader().setVisible(False)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
 
-        for row, (label, value) in enumerate(data.labeled_values()):
-            label_item = QTableWidgetItem(label)
-            value_item = QTableWidgetItem(value)
+        for row, (label, value) in enumerate(labeled_values):
+            label_item = QTableWidgetItem(str(label))
+            value_item = QTableWidgetItem(str(value))
             label_item.setFlags(label_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             value_item.setFlags(value_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             table.setItem(row, 0, label_item)

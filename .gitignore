@@ -9,3 +9,5 @@ build/
 .env
 logs/*.log
 config/app_state.json
+push_to_github.bat 
+fix_and_push.bat 

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from pydantic import BaseModel
+
 from api.client import ApiClient, ApiResponse
 from api.exceptions import ApiError
 from logs.setup import get_logger
-from models.crystal_data import CrystalData
 
 logger = get_logger(__name__)
 
@@ -18,7 +19,7 @@ class UploadWorker(QThread):
     finished_ok = pyqtSignal(object)
     finished_error = pyqtSignal(str)
 
-    def __init__(self, client: ApiClient, data: CrystalData, parent=None) -> None:
+    def __init__(self, client: ApiClient, data: BaseModel, parent=None) -> None:
         super().__init__(parent)
         self._client = client
         self._data = data

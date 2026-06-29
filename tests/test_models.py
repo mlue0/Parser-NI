@@ -3,7 +3,13 @@
 import pytest
 from pydantic import ValidationError
 
-from models.crystal_data import CrystalData, SORTING_TARGETS
+from models.crystal_data import (
+    CrystalData,
+    SORTING_TARGETS,
+    get_correction_options,
+    get_firmware_options,
+    get_initial_crystals_default,
+)
 
 
 def _valid_payload() -> dict:
@@ -15,6 +21,10 @@ def _valid_payload() -> dict:
         "defect_icc": 2,
         "defect_fc": 1,
         "defect_static": 1,
+        "defect_inl": 0,
+        "defect_dnl": 0,
+        "defect_burn": 0,
+        "defect_u0_adc": 0,
         "plate_marking": "PL-001",
         "firmware_number": "FW-10",
         "correction_number": "CR-01",
@@ -51,3 +61,12 @@ def test_to_api_payload():
     payload = data.to_api_payload()
     assert payload["plate_number"] == "P-123"
     assert "sorting_target" in payload
+
+
+def test_plate_marking_rules():
+    corrections = get_correction_options("K03")
+    firmwares = get_firmware_options("K03")
+    assert "K03" in corrections
+    assert "K03" in firmwares
+    assert get_initial_crystals_default("HV101M") == 400
+    assert "HV101M" in get_correction_options("HV101M")

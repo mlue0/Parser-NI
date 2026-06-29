@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
-from models.crystal_data import CrystalData
 from parsers.base import BaseParser, ParserError
 
 
@@ -14,11 +14,14 @@ class ExcelParser(BaseParser):
     """Читает XLSX/XLS через pandas."""
 
     extensions = (".xlsx", ".xls")
+    allowed_mimetypes = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+    )
 
-    def parse(self, file_path: str | Path) -> CrystalData:
+    def parse(self, file_path: str | Path) -> dict[str, Any]:
         path = Path(file_path)
-        if path.suffix.lower() not in self.extensions:
-            raise ParserError(f"Неподдерживаемое расширение: {path.suffix}")
+        self.validate_file(path)
 
         try:
             df = self._read_dataframe(path)
@@ -26,7 +29,7 @@ class ExcelParser(BaseParser):
             raise ParserError(f"Не удалось прочитать Excel-файл: {exc}") from exc
 
         raw = self._extract_from_key_value(df)
-        return self._build_model(raw)
+        return raw
 
     def _read_dataframe(self, file_path: Path) -> pd.DataFrame:
         suffix = file_path.suffix.lower()

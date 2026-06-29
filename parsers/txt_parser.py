@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from models.crystal_data import HEADER_ALIASES, CrystalData
 from parsers.base import BaseParser, ParserError
 
 
@@ -13,11 +12,11 @@ class TxtParser(BaseParser):
     """Читает текстовые файлы в формате «* Название- значение»."""
 
     extensions = (".txt",)
+    allowed_mimetypes = ("text/plain",)
 
-    def parse(self, file_path: str | Path) -> CrystalData:
+    def parse(self, file_path: str | Path) -> dict[str, Any]:
         path = Path(file_path)
-        if path.suffix.lower() not in self.extensions:
-            raise ParserError(f"Неподдерживаемое расширение: {path.suffix}")
+        self.validate_file(path)
 
         try:
             content = path.read_text(encoding="utf-8-sig")
@@ -30,7 +29,7 @@ class TxtParser(BaseParser):
             raise ParserError(f"Не удалось прочитать текстовый файл: {exc}") from exc
 
         raw = self._extract_from_text(content)
-        return self._build_model(raw)
+        return raw
 
     @staticmethod
     def _extract_from_text(content: str) -> dict[str, Any]:
@@ -56,9 +55,15 @@ class TxtParser(BaseParser):
         if not result:
             raise ParserError("Не удалось извлечь данные из текстового файла")
 
+        # Получаем aliases для парсинга
+        from models.dynamic_crystal_data import get_field_aliases
+        HEADER_ALIASES = get_field_aliases()
+        # Нижний регистр для поиска без учёта регистра (например, ICC vs Icc)
+        HEADER_ALIASES_LOWER = {k.lower(): v for k, v in HEADER_ALIASES.items()}
+
         mapped_result: dict[str, Any] = {}
         for header, value in result.items():
-            field_name = HEADER_ALIASES.get(header)
+            field_name = HEADER_ALIASES.get(header) or HEADER_ALIASES_LOWER.get(header.lower())
             if field_name:
                 mapped_result[field_name] = TxtParser._clean_value(value)
 

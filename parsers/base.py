@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import mimetypes
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
-from models.crystal_data import HEADER_ALIASES, CrystalData
+from logs.setup import get_logger
+
+logger = get_logger(__name__)
 
 
 class ParserError(Exception):
@@ -16,13 +19,58 @@ class ParserError(Exception):
 
 
 class BaseParser(ABC):
-    """Абстрактный парсер: читает файл и возвращает CrystalData."""
+    """Абстрактный парсер: читает файл и возвращает словарь с данными."""
 
     extensions: tuple[str, ...] = ()
+    allowed_mimetypes: tuple[str, ...] = ()
 
     @abstractmethod
-    def parse(self, file_path: str | Path) -> CrystalData:
-        """Извлекает данные из файла."""
+    def parse(self, file_path: str | Path) -> dict[str, Any]:
+        """Извлекает данные из файла.
+        
+        Returns:
+            Словарь с данными (не CrystalData модель!)
+        """
+
+    def validate_file(self, file_path: Path) -> None:
+        """Валидация файла перед парсингом.
+        
+        Raises:
+            ParserError: если файл не прошёл валидацию
+        """
+        if not file_path.exists():
+            raise ParserError(f"Файл не найден: {file_path}")
+        
+        if not file_path.is_file():
+            raise ParserError(f"Путь не является файлом: {file_path}")
+        
+        # Проверка размера (макс 100 MB)
+        max_size = 100 * 1024 * 1024
+        file_size = file_path.stat().st_size
+        if file_size > max_size:
+            raise ParserError(
+                f"Файл слишком большой: {file_size / (1024*1024):.1f} MB "
+                f"(максимум {max_size / (1024*1024):.0f} MB)"
+            )
+        
+        if file_size == 0:
+            raise ParserError("Файл пустой")
+        
+        # Проверка расширения
+        if file_path.suffix.lower() not in self.extensions:
+            raise ParserError(
+                f"Неподдерживаемое расширение {file_path.suffix}. "
+                f"Ожидается: {', '.join(self.extensions)}"
+            )
+        
+        # Проверка MIME типа (если указаны)
+        if self.allowed_mimetypes:
+            mime_type, _ = mimetypes.guess_type(str(file_path))
+            if mime_type and mime_type not in self.allowed_mimetypes:
+                raise ParserError(
+                    f"Некорректный тип файла: {mime_type}. "
+                    f"Ожидается: {', '.join(self.allowed_mimetypes)}"
+                )
 
     def _read_dataframe(self, file_path: Path) -> pd.DataFrame:
         raise NotImplementedError
@@ -44,6 +92,15 @@ class BaseParser(ABC):
         if df.empty:
             raise ParserError("Файл не содержит данных")
 
+        # Получаем aliases для парсинга
+        from models.dynamic_crystal_data import get_field_aliases
+        HEADER_ALIASES = get_field_aliases()
+        # Нижний регистр для поиска без учёта регистра (например, ICC vs Icc)
+        HEADER_ALIASES_LOWER = {k.lower(): v for k, v in HEADER_ALIASES.items()}
+
+        def resolve(header: str) -> str | None:
+            return HEADER_ALIASES.get(header) or HEADER_ALIASES_LOWER.get(header.lower())
+
         # Формат: колонка A — название поля, колонка B — значение
         if df.shape[1] >= 2 and df.shape[0] >= 1:
             key_col = df.iloc[:, 0]
@@ -52,7 +109,7 @@ class BaseParser(ABC):
                 header = cls._normalize_header(key)
                 if not header:
                     continue
-                field_name = HEADER_ALIASES.get(header)
+                field_name = resolve(header)
                 if field_name:
                     result[field_name] = cls._clean_value(val)
 
@@ -61,7 +118,7 @@ class BaseParser(ABC):
             headers = [cls._normalize_header(h) for h in df.columns]
             values = df.iloc[0].tolist()
             for header, val in zip(headers, values, strict=False):
-                field_name = HEADER_ALIASES.get(header)
+                field_name = resolve(header)
                 if field_name:
                     result[field_name] = cls._clean_value(val)
 
@@ -70,7 +127,7 @@ class BaseParser(ABC):
             headers = [cls._normalize_header(h) for h in df.iloc[0].tolist()]
             values = df.iloc[1].tolist()
             for header, val in zip(headers, values, strict=False):
-                field_name = HEADER_ALIASES.get(header)
+                field_name = resolve(header)
                 if field_name:
                     result[field_name] = cls._clean_value(val)
 
@@ -79,6 +136,8 @@ class BaseParser(ABC):
                 "Не удалось сопоставить поля файла. "
                 "Убедитесь, что заголовки совпадают с ожидаемыми названиями."
             )
+        
+        logger.info(f"Распарсено {len(result)} полей из файла")
         return result
 
     @staticmethod
@@ -93,28 +152,3 @@ class BaseParser(ABC):
                 return int(value)
             return value
         return value
-
-    def _build_model(self, raw: dict[str, Any]) -> CrystalData:
-        """Создаёт модель с дефолтами для отсутствующих числовых полей."""
-        defaults: dict[str, Any] = {
-            "good_crystals": 0,
-            "defective_crystals": 0,
-            "total_crystals": 0,
-            "defect_contact": 0,
-            "defect_icc": 0,
-            "defect_fc": 0,
-            "defect_static": 0,
-            "plate_marking": "",
-            "firmware_number": "",
-            "correction_number": "",
-            "bmk_batch_number": "",
-            "plate_number": "",
-            "initial_crystals": 0,
-            "sorting_type": "",
-            "sorting_target": "",
-        }
-        merged = {**defaults, **{k: v for k, v in raw.items() if v is not None}}
-        try:
-            return CrystalData.model_validate(merged)
-        except Exception as exc:
-            raise ParserError(f"Ошибка валидации распарсенных данных: {exc}") from exc

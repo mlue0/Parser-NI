@@ -1,0 +1,62 @@
+# Auto detect text files and normalize line endings to LF
+* text=auto
+
+# Python source files
+*.py text eol=lf
+*.pyw text eol=lf
+*.pyi text eol=lf
+
+# Configuration files
+*.ini text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.xml text eol=lf
+
+# Documentation
+*.md text eol=lf
+*.txt text eol=lf
+*.rst text eol=lf
+
+# Shell scripts
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Windows scripts
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# CSV files should preserve their line endings
+*.csv text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.xlsx binary
+*.xls binary
+*.db binary
+*.sqlite binary
+*.pyc binary
+*.pyo binary
+*.so binary
+*.dll binary
+*.dylib binary
+*.exe binary
+
+# Git specific
+.gitattributes text eol=lf
+.gitignore text eol=lf
+
+# Environment and config
+.env* text eol=lf
+
+# Lock files
+requirements.txt text eol=lf
+poetry.lock text eol=lf
+Pipfile.lock text eol=lf

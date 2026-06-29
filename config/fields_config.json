@@ -1,0 +1,319 @@
+{
+  "version": "1.0.0",
+  "description": "Конфигурация полей для SimpleMeasure",
+  "field_groups": {
+    "params_identity": {
+      "title": "Идентификация",
+      "description": "Маркировка и номера пластины",
+      "tab": "Параметры",
+      "fields": [
+        {
+          "key": "plate_marking",
+          "label": "Маркировка пластины",
+          "type": "string",
+          "required": true,
+          "editable": true,
+          "order": 1,
+          "choices": [
+            "M3RV", "M1RV", "K03R", "K04", "K03", "K02", "K01", "HV101M",
+            "HV232", "HV231", "HV252", "HV251", "HV24", "HV214", "HV222", "HV221",
+            "HV212", "HV211", "HV19", "HV18", "HV174", "HV173", "HV172", "HV171",
+            "HV16", "HV154", "HV153", "HV152", "HV151", "HV14", "HV13", "HV124",
+            "HV121", "HV114", "HV113", "HV112", "HV111", "HV104", "HV103", "HV102",
+            "HV101", "HV91", "HV84", "HV83", "HV82", "HV81", "HV74", "HV73",
+            "HV72", "HV71", "HV64", "HV63", "HV62", "HV61"
+          ]
+        },
+        {
+          "key": "firmware_number",
+          "label": "Номер зашивки",
+          "type": "string",
+          "required": false,
+          "editable": true,
+          "order": 2
+        },
+        {
+          "key": "correction_number",
+          "label": "Номер коррекции",
+          "type": "string",
+          "required": false,
+          "editable": true,
+          "order": 3
+        },
+        {
+          "key": "plate_number",
+          "label": "Номер пластины",
+          "type": "string",
+          "required": true,
+          "editable": true,
+          "order": 4
+        },
+        {
+          "key": "bmk_batch_number",
+          "label": "Номер партии БМК",
+          "type": "string",
+          "required": true,
+          "editable": true,
+          "order": 5
+        }
+      ]
+    },
+    "params_output": {
+      "title": "Разбраковка",
+      "description": "Тип, цель и комментарий",
+      "tab": "Параметры",
+      "fields": [
+        {
+          "key": "sorting_target",
+          "label": "Цель разбраковки",
+          "type": "string",
+          "required": true,
+          "editable": false,
+          "order": 1,
+          "default_value": "ПР-ОВ",
+          "choices": ["ПР-ОВ", "ОКР"]
+        },
+        {
+          "key": "sorting_type",
+          "label": "Тип разбраковки",
+          "type": "string",
+          "required": true,
+          "editable": false,
+          "order": 2,
+          "default_value": "Разбраковка NI",
+          "choices": ["Разбраковка NI", "Разбраковка FORM"]
+        },
+        {
+          "key": "comment",
+          "label": "Комментарий",
+          "type": "string",
+          "required": false,
+          "editable": true,
+          "order": 3,
+          "default_value": "",
+          "widget_type": "textarea"
+        }
+      ]
+    },
+    "quantities_base": {
+      "title": "Количественные показатели",
+      "description": "Итоговые количества кристаллов",
+      "tab": "Количественные показатели",
+      "fields": [
+        {
+          "key": "good_crystals",
+          "label": "Годные кристаллы",
+          "type": "integer",
+          "required": true,
+          "editable": false,
+          "min_value": 0,
+          "order": 1
+        },
+        {
+          "key": "defective_crystals",
+          "label": "Бракованные кристаллы",
+          "type": "integer",
+          "required": true,
+          "editable": false,
+          "min_value": 0,
+          "order": 2
+        },
+        {
+          "key": "total_crystals",
+          "label": "Общее количество кристаллов",
+          "type": "integer",
+          "required": true,
+          "editable": false,
+          "min_value": 0,
+          "order": 3
+        },
+        {
+          "key": "initial_crystals",
+          "label": "Исходное количество кристаллов",
+          "type": "integer",
+          "required": false,
+          "editable": false,
+          "min_value": 0,
+          "order": 4
+        }
+      ]
+    },
+    "defects_common": {
+      "title": "Брак — Общие параметры",
+      "description": "Типы брака для всех пластин (цифровых и аналоговых)",
+      "tab": "Количественные показатели",
+      "fields": [
+        {
+          "key": "defect_contact",
+          "label": "Брак по Contact",
+          "type": "integer",
+          "required": false,
+          "editable": true,
+          "min_value": 0,
+          "order": 1
+        },
+        {
+          "key": "defect_icc",
+          "label": "Брак по Icc",
+          "type": "integer",
+          "required": false,
+          "editable": true,
+          "min_value": 0,
+          "order": 2
+        },
+        {
+          "key": "defect_fc",
+          "label": "Брак по FC",
+          "type": "integer",
+          "required": false,
+          "editable": true,
+          "min_value": 0,
+          "order": 3
+        },
+        {
+          "key": "defect_static",
+          "label": "Брак по Static",
+          "type": "integer",
+          "required": false,
+          "editable": true,
+          "min_value": 0,
+          "order": 4
+        }
+      ]
+    },
+    "defects_analog": {
+      "title": "Брак — Аналоговые пластины",
+      "description": "Типы брака для аналоговых пластин",
+      "plate_type": "analog",
+      "tab": "Количественные показатели",
+      "fields": [
+        {
+          "key": "defect_inl",
+          "label": "Брак по INL",
+          "type": "integer",
+          "required": false,
+          "editable": true,
+          "min_value": 0,
+          "order": 1
+        },
+        {
+          "key": "defect_dnl",
+          "label": "Брак по DNL",
+          "type": "integer",
+          "required": false,
+          "editable": true,
+          "min_value": 0,
+          "order": 2
+        },
+        {
+          "key": "defect_burn",
+          "label": "Брак по Burn",
+          "type": "integer",
+          "required": false,
+          "editable": true,
+          "min_value": 0,
+          "order": 3
+        },
+        {
+          "key": "defect_u0_adc",
+          "label": "Брак по U0 в режиме АЦП",
+          "type": "integer",
+          "required": false,
+          "editable": true,
+          "min_value": 0,
+          "order": 4
+        }
+      ]
+    },
+    "norms_digital": {
+      "title": "Нормы — Цифровые пластины",
+      "description": "Нормы для цифровых пластин",
+      "plate_type": "digital",
+      "tab": "Нормы",
+      "fields": [
+        {
+          "key": "norm_icc",
+          "label": "Норма Icc",
+          "type": "string",
+          "required": false,
+          "editable": true,
+          "order": 1,
+          "unit": "мкА"
+        }
+      ]
+    },
+    "norms_analog": {
+      "title": "Нормы — Аналоговые пластины",
+      "description": "Нормы для аналоговых пластин",
+      "plate_type": "analog",
+      "tab": "Нормы",
+      "fields": [
+        {
+          "key": "norm_inl",
+          "label": "Норма INL",
+          "type": "string",
+          "required": false,
+          "editable": true,
+          "order": 1,
+          "unit": "МЗР"
+        },
+        {
+          "key": "norm_dnl",
+          "label": "Норма DNL",
+          "type": "string",
+          "required": false,
+          "editable": true,
+          "order": 2,
+          "unit": "МЗР"
+        },
+        {
+          "key": "norm_ufs",
+          "label": "Норма Ufs",
+          "type": "string",
+          "required": false,
+          "editable": true,
+          "order": 3,
+          "unit": "В"
+        },
+        {
+          "key": "norm_u0",
+          "label": "Норма U0",
+          "type": "string",
+          "required": false,
+          "editable": true,
+          "order": 4,
+          "unit": "В"
+        },
+        {
+          "key": "norm_u_perzhiganiya",
+          "label": "Норма U пережигания",
+          "type": "string",
+          "required": false,
+          "editable": true,
+          "order": 5,
+          "unit": "В"
+        },
+        {
+          "key": "norm_u0_adc",
+          "label": "Норма U0 в режиме АЦП",
+          "type": "string",
+          "required": false,
+          "editable": true,
+          "order": 6,
+          "unit": "В"
+        }
+      ]
+    },
+    "custom_fields": {
+      "title": "Пользовательские поля",
+      "description": "Поля, добавленные пользователем",
+      "tab": "Параметры",
+      "fields": []
+    }
+  },
+  "settings": {
+    "auto_detect_plate_type": true,
+    "show_only_parsed_fields": true,
+    "allow_custom_fields": true
+  }
+}

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
-from models.crystal_data import CrystalData
 from parsers.base import BaseParser, ParserError
 
 
@@ -14,11 +14,11 @@ class CsvParser(BaseParser):
     """Читает CSV с автоопределением разделителя."""
 
     extensions = (".csv",)
+    allowed_mimetypes = ("text/csv", "application/csv", "text/plain", "application/vnd.ms-excel")
 
-    def parse(self, file_path: str | Path) -> CrystalData:
+    def parse(self, file_path: str | Path) -> dict[str, Any]:
         path = Path(file_path)
-        if path.suffix.lower() not in self.extensions:
-            raise ParserError(f"Неподдерживаемое расширение: {path.suffix}")
+        self.validate_file(path)
 
         try:
             df = self._read_dataframe(path)
@@ -26,7 +26,7 @@ class CsvParser(BaseParser):
             raise ParserError(f"Не удалось прочитать CSV-файл: {exc}") from exc
 
         raw = self._extract_from_key_value(df)
-        return self._build_model(raw)
+        return raw
 
     def _read_dataframe(self, file_path: Path) -> pd.DataFrame:
         for encoding in ("utf-8-sig", "utf-8", "cp1251"):
