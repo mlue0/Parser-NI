@@ -48,12 +48,13 @@ logger = get_logger(__name__)
 class MainWindow(QMainWindow):
     """Основное окно: выбор файла, редактирование, отправка."""
 
-    def __init__(self) -> None:
+    def __init__(self, on_back=None) -> None:
         super().__init__()
         self.setWindowTitle("SimpleMeasure — загрузка данных разбраковки")
         self.resize(540, 960)
         self.setMinimumSize(360, 640)
 
+        self._on_back = on_back  # колбэк возврата на экран выбора режима
         self._settings = get_settings()
         self._api_client = ApiClient(self._settings)
         self._current_file: str | None = None
@@ -157,6 +158,13 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout(bar)
         row.setContentsMargins(8, 4, 8, 4)
         row.setSpacing(6)
+
+        if self._on_back is not None:
+            back_btn = QPushButton("← Назад")
+            back_btn.setToolTip("Вернуться к выбору режима")
+            back_btn.clicked.connect(self._go_back)
+            row.addWidget(back_btn)
+
         row.addStretch()
 
         api_btn = QPushButton("⚙ API")
@@ -181,6 +189,11 @@ class MainWindow(QMainWindow):
         row.addWidget(theme_btn)
 
         return bar
+
+    def _go_back(self) -> None:
+        """Возврат на экран выбора режима."""
+        from ui.launcher import navigate_back
+        navigate_back(self, self._on_back)
 
     def _toggle_theme(self) -> None:
         from PyQt6.QtWidgets import QApplication

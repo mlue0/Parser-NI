@@ -222,6 +222,51 @@
           "editable": true,
           "min_value": 0,
           "order": 4
+        },
+        {
+          "key": "defect_ro",
+          "label": "Брак по Ro",
+          "type": "integer",
+          "required": false,
+          "editable": true,
+          "min_value": 0,
+          "order": 5
+        },
+        {
+          "key": "defect_iccfc",
+          "label": "Брак по IccFC",
+          "type": "integer",
+          "required": false,
+          "editable": true,
+          "min_value": 0,
+          "order": 6
+        },
+        {
+          "key": "defect_iccsc",
+          "label": "Брак по ICcSc",
+          "type": "integer",
+          "required": false,
+          "editable": true,
+          "min_value": 0,
+          "order": 7
+        },
+        {
+          "key": "defect_fcsc",
+          "label": "Брак по FCSc",
+          "type": "integer",
+          "required": false,
+          "editable": true,
+          "min_value": 0,
+          "order": 8
+        },
+        {
+          "key": "defect_inl_dnl",
+          "label": "Брак по INL,DNL",
+          "type": "integer",
+          "required": false,
+          "editable": true,
+          "min_value": 0,
+          "order": 9
         }
       ]
     },
@@ -301,6 +346,78 @@
           "editable": true,
           "order": 6,
           "unit": "В"
+        },
+        {
+          "key": "norm_iocc",
+          "label": "Норма IoCC",
+          "type": "string",
+          "required": false,
+          "editable": true,
+          "order": 7,
+          "unit": "мкА"
+        },
+        {
+          "key": "norm_iil",
+          "label": "Норма IIL",
+          "type": "string",
+          "required": false,
+          "editable": true,
+          "order": 8,
+          "unit": "мкА"
+        },
+        {
+          "key": "norm_iih",
+          "label": "Норма IIH",
+          "type": "string",
+          "required": false,
+          "editable": true,
+          "order": 9,
+          "unit": "мкА"
+        },
+        {
+          "key": "norm_ioh",
+          "label": "Норма IOH",
+          "type": "string",
+          "required": false,
+          "editable": true,
+          "order": 10,
+          "unit": "мкА"
+        },
+        {
+          "key": "norm_iol",
+          "label": "Норма IOL",
+          "type": "string",
+          "required": false,
+          "editable": true,
+          "order": 11,
+          "unit": "мкА"
+        },
+        {
+          "key": "norm_uol",
+          "label": "Норма UoL",
+          "type": "string",
+          "required": false,
+          "editable": true,
+          "order": 12,
+          "unit": "В"
+        },
+        {
+          "key": "norm_uoh",
+          "label": "Норма UoH",
+          "type": "string",
+          "required": false,
+          "editable": true,
+          "order": 13,
+          "unit": "В"
+        },
+        {
+          "key": "norm_ro",
+          "label": "Норма Ro",
+          "type": "string",
+          "required": false,
+          "editable": true,
+          "order": 14,
+          "unit": "Ом"
         }
       ]
     },

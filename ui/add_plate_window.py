@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from PyQt6.QtWidgets import (
     QComboBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -33,12 +34,13 @@ logger = get_logger(__name__)
 class AddPlateWindow(QMainWindow):
     """Форма добавления новой пластины в базу."""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, on_back=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("SimpleMeasure — добавление пластины")
         self.resize(520, 640)
         self.setMinimumSize(420, 560)
 
+        self._on_back = on_back  # колбэк возврата на экран выбора режима
         self._settings = get_settings()
         self._api_client = ApiClient(self._settings)
         self._pending_data: PlateData | None = None
@@ -60,6 +62,15 @@ class AddPlateWindow(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(16, 16, 16, 16)
         root.setSpacing(12)
+
+        if self._on_back is not None:
+            top = QHBoxLayout()
+            back_btn = QPushButton("← Назад")
+            back_btn.setToolTip("Вернуться к выбору режима")
+            back_btn.clicked.connect(self._go_back)
+            top.addWidget(back_btn)
+            top.addStretch()
+            root.addLayout(top)
 
         title = QLabel("Добавление пластины")
         title.setStyleSheet("font-size: 18px; font-weight: 700;")
@@ -255,6 +266,11 @@ class AddPlateWindow(QMainWindow):
         self._upload_worker.finished_ok.connect(self._on_success)
         self._upload_worker.finished_error.connect(self._on_error)
         self._upload_worker.start()
+
+    def _go_back(self) -> None:
+        """Возврат на экран выбора режима."""
+        from ui.launcher import navigate_back
+        navigate_back(self, self._on_back)
 
     def _clear_form(self) -> None:
         self._plate_marking.setCurrentText("")

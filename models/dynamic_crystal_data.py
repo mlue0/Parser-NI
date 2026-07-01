@@ -261,6 +261,22 @@ def get_field_aliases() -> dict[str, str]:
         "Норма по U0 в режиме АЦП":  "norm_u0_adc",
         "Норма U0 АЦП":              "norm_u0_adc",
         "Норма U0 в режиме АЦП":     "norm_u0_adc",
+        "Норма по IoCC":             "norm_iocc",
+        "Норма IoCC":                "norm_iocc",
+        "Норма по IIL":              "norm_iil",
+        "Норма IIL":                 "norm_iil",
+        "Норма по IIH":              "norm_iih",
+        "Норма IIH":                 "norm_iih",
+        "Норма по IOH":              "norm_ioh",
+        "Норма IOH":                 "norm_ioh",
+        "Норма по IOL":              "norm_iol",
+        "Норма IOL":                 "norm_iol",
+        "Норма по UoL":              "norm_uol",
+        "Норма UoL":                 "norm_uol",
+        "Норма по UoH":              "norm_uoh",
+        "Норма UoH":                 "norm_uoh",
+        "Норма по Ro":               "norm_ro",
+        "Норма Ro":                  "norm_ro",
     }
     aliases.update(_NORM_ALIASES)
 

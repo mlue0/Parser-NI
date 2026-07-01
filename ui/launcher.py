@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -14,6 +17,30 @@ from PyQt6.QtWidgets import (
 from logs.setup import get_logger
 
 logger = get_logger(__name__)
+
+
+def navigate_back(window: QWidget, on_back: Callable[[], None] | None) -> None:
+    """Закрывает окно режима и возвращает экран выбора, не завершая приложение.
+
+    Пока идёт закрытие, временно отключаем quitOnLastWindowClosed — иначе
+    закрытие последнего видимого окна завершило бы приложение до показа лаунчера.
+    Если closeEvent отменил закрытие (например, идёт отправка) — лаунчер не
+    показываем.
+    """
+    if on_back is None:
+        window.close()
+        return
+    app = QApplication.instance()
+    prev = app.quitOnLastWindowClosed() if app else True
+    if app:
+        app.setQuitOnLastWindowClosed(False)
+    try:
+        closed = window.close()
+    finally:
+        if app:
+            app.setQuitOnLastWindowClosed(prev)
+    if closed:
+        on_back()
 
 
 class LauncherWindow(QWidget):
@@ -68,13 +95,21 @@ class LauncherWindow(QWidget):
     def _open_add_plate(self) -> None:
         from ui.add_plate_window import AddPlateWindow
         logger.info("Выбран режим: добавить пластину")
-        self._child = AddPlateWindow()
+        self._child = AddPlateWindow(on_back=self._return_to_menu)
         self._child.show()
-        self.close()
+        self.hide()
 
     def _open_sort(self) -> None:
         from ui.main_window import MainWindow
         logger.info("Выбран режим: разбраковать пластину")
-        self._child = MainWindow()
+        self._child = MainWindow(on_back=self._return_to_menu)
         self._child.show()
-        self.close()
+        self.hide()
+
+    def _return_to_menu(self) -> None:
+        """Возврат из режима на экран выбора (окно режима уже закрыто)."""
+        logger.info("Возврат на экран выбора режима")
+        self._child = None
+        self.show()
+        self.raise_()
+        self.activateWindow()
