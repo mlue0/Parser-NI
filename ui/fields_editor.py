@@ -160,7 +160,14 @@ class FieldsEditorWindow(QDialog):
         self.tabs.addTab(self.norms_tab, "Нормы")
 
         # Вкладка: Пользовательские поля
-        self.custom_tab = self._create_group_tab("custom_fields")
+        self.custom_tab = self._create_group_tab(
+            "custom_fields",
+            hint=(
+                "Здесь появляются добавленные вами поля. Нажмите «➕ Добавить поле», "
+                "чтобы создать новое — его можно редактировать, удалять и менять порядок. "
+                "Пользовательские поля отображаются в форме разбраковки на вкладке «Параметры»."
+            ),
+        )
         self.tabs.addTab(self.custom_tab, "Пользовательские поля")
         
         layout.addWidget(self.tabs)
@@ -201,11 +208,17 @@ class FieldsEditorWindow(QDialog):
         save_buttons.rejected.connect(self.reject)
         layout.addWidget(save_buttons)
     
-    def _create_group_tab(self, *group_names: str) -> QWidget:
+    def _create_group_tab(self, *group_names: str, hint: str | None = None) -> QWidget:
         """Создаёт вкладку для группы полей."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        
+
+        if hint:
+            hint_label = QLabel(hint)
+            hint_label.setWordWrap(True)
+            hint_label.setStyleSheet("color: #888; font-size: 12px; padding: 4px 2px;")
+            layout.addWidget(hint_label)
+
         # Создаём список для каждой группы
         for group_name in group_names:
             group = self.fields_manager.groups.get(group_name)
@@ -214,7 +227,9 @@ class FieldsEditorWindow(QDialog):
             
             group_box = QGroupBox(group.title)
             group_layout = QVBoxLayout(group_box)
-            
+            # Верхний отступ, чтобы список не перекрывал заголовок группы
+            group_layout.setContentsMargins(10, 18, 10, 10)
+
             list_widget = QListWidget()
             list_widget.setProperty("group_name", group_name)
             list_widget.setDragDropMode(QListWidget.DragDropMode.InternalMove)
@@ -392,6 +407,17 @@ class FieldsEditorWindow(QDialog):
             # Восстанавливаем выбор
             list_widget.setCurrentRow(new_row)
     
+    def reject(self):
+        """Отмена: откатываем правки, сделанные в живом синглтоне.
+
+        Диалог редактирует объекты FieldsManager «на месте» (label/order/...),
+        поэтому при отмене сбрасываем синглтон — конфиг перечитается с диска
+        и несохранённые изменения не «протекут» в остальное приложение.
+        """
+        from config.fields_manager import reset_fields_manager
+        reset_fields_manager()
+        super().reject()
+
     def _save_and_close(self):
         """Сохраняет изменения и закрывает окно."""
         try:

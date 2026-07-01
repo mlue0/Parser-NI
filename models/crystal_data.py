@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import ClassVar
 
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
 PLATE_MARKINGS: tuple[str, ...] = (
     "M3RV",
     "M1RV",
@@ -109,9 +111,6 @@ HV_SUFFIXES: tuple[str, ...] = (
     "62",
     "61",
 )
-
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-
 
 SORTING_TARGETS: tuple[str, ...] = ("ПР-ОВ", "ОКР")
 

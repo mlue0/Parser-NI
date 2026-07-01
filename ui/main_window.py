@@ -53,7 +53,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("SimpleMeasure — загрузка данных разбраковки")
         self.resize(540, 960)
         self.setMinimumSize(360, 640)
-        self._resizing = False
 
         self._settings = get_settings()
         self._api_client = ApiClient(self._settings)
@@ -61,6 +60,7 @@ class MainWindow(QMainWindow):
         self._current_raw_data: dict | None = None  # Сырые данные для перестройки формы
         self._pending_data = None  # Может быть BaseModel или None
         self._upload_worker: UploadWorker | None = None
+        self._flush_worker = None  # FlushQueueWorker | None
         self._loading_dialog: LoadingDialog | None = None
         # Очередь файлов для пакетной загрузки
         self._batch_queue: list[str] = []
@@ -111,7 +111,9 @@ class MainWindow(QMainWindow):
 
         title = QLabel("Загрузка данных разбраковки кристаллов")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("font-size: 22px; font-weight: 700; color: #212121;")
+        # Цвет берём из активной палитры темы — без хардкода, чтобы текст
+        # читался и в светлой, и в тёмной теме.
+        title.setStyleSheet("font-size: 22px; font-weight: 700;")
         layout.addWidget(title)
 
         hint = QLabel(
@@ -120,7 +122,7 @@ class MainWindow(QMainWindow):
         )
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hint.setWordWrap(True)
-        hint.setStyleSheet("font-size: 13px; color: #666666;")
+        hint.setStyleSheet("font-size: 13px;")
         layout.addWidget(hint)
 
         btn_layout = QHBoxLayout()
@@ -181,9 +183,9 @@ class MainWindow(QMainWindow):
         return bar
 
     def _toggle_theme(self) -> None:
-        from ui.theme import toggle_theme
-        app = self.__class__.__bases__  # не используем напрямую
         from PyQt6.QtWidgets import QApplication
+
+        from ui.theme import toggle_theme
         dark = toggle_theme(QApplication.instance())
         self._status.showMessage("Тёмная тема" if dark else "Светлая тема", 3000)
 
@@ -443,23 +445,34 @@ class MainWindow(QMainWindow):
         self._start_upload()
 
     def _try_flush_offline_queue(self) -> None:
-        """Фоновая попытка отправить накопленные офлайн-данные."""
-        from ui.offline_queue import flush_queue, queue_size
+        """Фоновая попытка отправить накопленные офлайн-данные.
+
+        Выполняется в отдельном потоке, чтобы не блокировать UI при старте,
+        если API недоступен или отвечает медленно.
+        """
+        from ui.offline_queue import queue_size
         if queue_size() == 0:
             return
         if not self._settings.is_configured:
             return
-        try:
-            sent, failed = flush_queue(self._api_client)
-            if sent:
-                self._status.showMessage(
-                    f"Офлайн-очередь: отправлено {sent} записей"
-                    + (f", осталось {failed}" if failed else ""),
-                    6000,
-                )
-                logger.info("Офлайн-очередь: отправлено %d, осталось %d", sent, failed)
-        except Exception as exc:
-            logger.warning("Ошибка при сбросе офлайн-очереди: %s", exc)
+        if self._flush_worker is not None and self._flush_worker.isRunning():
+            return
+
+        from ui.workers import FlushQueueWorker
+        self._flush_worker = FlushQueueWorker(self._api_client, self)
+        self._flush_worker.finished_flush.connect(self._on_offline_flush_done)
+        self._flush_worker.start()
+
+    def _on_offline_flush_done(self, sent: int, failed: int) -> None:
+        if failed < 0:
+            return  # ошибка уже залогирована воркером
+        if sent:
+            self._status.showMessage(
+                f"Офлайн-очередь: отправлено {sent} записей"
+                + (f", осталось {failed}" if failed else ""),
+                6000,
+            )
+            logger.info("Офлайн-очередь: отправлено %d, осталось %d", sent, failed)
 
     def _register_shortcuts(self) -> None:
         """Создаёт QShortcut из текущих настроек горячих клавиш."""
@@ -545,22 +558,6 @@ class MainWindow(QMainWindow):
             self._edit_form.submit_button.setEnabled(False)
         self._status.showMessage("Отправка данных...")
 
-    def resizeEvent(self, event) -> None:
-        if getattr(self, "_resizing", False):
-            super().resizeEvent(event)
-            return
-
-        self._resizing = True
-        new_size = event.size()
-        target_height = int(new_size.width() * 16 / 9)
-        target_width = int(new_size.height() * 9 / 16)
-        if abs(target_height - new_size.height()) < abs(target_width - new_size.width()):
-            self.resize(new_size.width(), target_height)
-        else:
-            self.resize(target_width, new_size.height())
-        self._resizing = False
-        super().resizeEvent(event)
-
     def _close_loading(self) -> None:
         if self._loading_dialog:
             self._loading_dialog.close()
@@ -596,8 +593,8 @@ class MainWindow(QMainWindow):
         if self._current_file:
             try:
                 clear_draft(self._current_file)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Не удалось очистить черновик: %s", exc)
 
         QMessageBox.information(self, "Успех", response.message)
         self._pending_data = None
@@ -690,7 +687,23 @@ class MainWindow(QMainWindow):
             if reply != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
-            self._upload_worker.terminate()
-            self._upload_worker.wait(3000)
+            # Отключаем сигналы, чтобы завершающийся поток не дёрнул колбэки
+            # уже разрушаемого окна. Сначала даём шанс завершиться штатно
+            # (запрос ограничен таймаутом requests), terminate() — крайняя
+            # мера только при закрытии приложения.
+            try:
+                self._upload_worker.finished_ok.disconnect()
+                self._upload_worker.finished_error.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+            if not self._upload_worker.wait(3000):
+                logger.warning("Поток отправки не завершился — принудительная остановка")
+                self._upload_worker.terminate()
+                self._upload_worker.wait(2000)
+
+        # Дожидаемся фонового сброса офлайн-очереди, если он идёт
+        if self._flush_worker is not None and self._flush_worker.isRunning():
+            self._flush_worker.wait(2000)
+
         logger.info("Приложение закрыто")
         super().closeEvent(event)

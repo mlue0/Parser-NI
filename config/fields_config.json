@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Конфигурация полей для SimpleMeasure",
   "field_groups": {
     "params_identity": {

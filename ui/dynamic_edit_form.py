@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -36,32 +37,22 @@ logger = get_logger(__name__)
 # Желаемый порядок табов
 TAB_ORDER = ["Параметры", "Количественные показатели", "Нормы"]
 
-# ── Расшифровка SI-суффиксов ──────────────────────────────────────────────────
-_SI_PREFIX: dict[str, tuple[str, str]] = {
-    # суффикс → (русский префикс, степень)
-    "p":  ("пико",  "× 10⁻¹²"),
-    "n":  ("нано",  "× 10⁻⁹"),
-    "u":  ("микро", "× 10⁻⁶"),
-    "µ":  ("микро", "× 10⁻⁶"),
-    "mk": ("микро", "× 10⁻⁶"),
-    "мк": ("микро", "× 10⁻⁶"),
-    "m":  ("милли", "× 10⁻³"),
-    "м":  ("милли", "× 10⁻³"),
-    "k":  ("кило",  "× 10³"),
-    "к":  ("кило",  "× 10³"),
-    "M":  ("мега",  "× 10⁶"),
-    "G":  ("гига",  "× 10⁹"),
-}
-# Расшифровки базовых единиц
+# Расшифровки единиц (включая распространённые приставки)
 _UNIT_FULL: dict[str, str] = {
-    "А":   "ампер",
+    "пА":  "пикоампер",
+    "нА":  "наноампер",
     "мкА": "микроампер",
     "мА":  "миллиампер",
-    "В":   "вольт",
+    "А":   "ампер",
+    "кА":  "килоампер",
+    "мкВ": "микровольт",
     "мВ":  "милливольт",
+    "В":   "вольт",
+    "кВ":  "киловольт",
     "МЗР": "младший значащий разряд (LSB)",
     "Ом":  "ом",
     "Гц":  "герц",
+    "кГц": "килогерц",
 }
 
 # Краткие русские символы SI-префиксов для метки рядом с полем
@@ -82,10 +73,46 @@ _SI_SYMBOL: dict[str, str] = {
 
 # Составные единицы, которые файл пишет как суффикс к числу ("5mA", "11A", ...)
 _VALUE_UNITS: dict[str, str] = {
-    "A":  "А",   "mA": "мА",  "uA": "мкА", "µA": "мкА",
-    "V":  "В",   "mV": "мВ",  "kV": "кВ",
-    "Hz": "Гц",  "kHz": "кГц",
+    "pA": "пА", "nA": "нА", "uA": "мкА", "µA": "мкА", "mA": "мА", "A": "А", "kA": "кА",
+    "uV": "мкВ", "µV": "мкВ", "mV": "мВ", "V": "В", "kV": "кВ",
+    "Hz": "Гц", "kHz": "кГц",
 }
+
+# Базовые (без приставки) физические единицы.
+_BASE_QUANTITIES: frozenset[str] = frozenset({"А", "В", "Ом", "Гц", "МЗР"})
+# Русские приставки СИ («мк» — первой, чтобы матчилась раньше «м»/«к»).
+_RU_PREFIXES: tuple[str, ...] = ("мк", "н", "м", "к", "М", "Г", "п")
+# Готовые русские единицы (с приставкой) — распознаём как есть.
+_RU_UNITS: frozenset[str] = frozenset(_UNIT_FULL.keys()) | _BASE_QUANTITIES
+
+
+def _base_quantity(unit: str) -> str:
+    """Возвращает единицу без приставки: 'мкА'→'А', 'мВ'→'В', 'МЗР'→'МЗР'."""
+    if unit in _BASE_QUANTITIES:
+        return unit
+    for prefix in _RU_PREFIXES:
+        if unit.startswith(prefix) and unit[len(prefix):] in _BASE_QUANTITIES:
+            return unit[len(prefix):]
+    return unit
+
+
+def _resolve_unit(suffix: str, base_unit: str) -> str:
+    """Определяет корректную единицу по суффиксу значения и базовой единице поля.
+
+    Ключевая правка: одиночная приставка СИ соединяется с *базовой* единицей
+    (без уже имеющейся приставки), поэтому '25u' при base_unit='мкА' даёт 'мкА',
+    а не 'мкмкА'.
+    """
+    suffix = suffix.strip()
+    if not suffix or suffix == base_unit:
+        return base_unit
+    if suffix in _VALUE_UNITS:          # компактная составная единица: 'mA', 'uA', 'nA'…
+        return _VALUE_UNITS[suffix]
+    if suffix in _RU_UNITS:             # уже корректная русская единица: 'мкА', 'мВ'…
+        return suffix
+    if suffix in _SI_SYMBOL:            # одиночная приставка: 'u', 'm', 'к', 'мк'…
+        return _SI_SYMBOL[suffix] + _base_quantity(base_unit)
+    return base_unit                    # нераспознанный суффикс — показываем базовую единицу
 
 
 def _make_unit_tooltip(value: str, base_unit: str) -> str:
@@ -94,23 +121,9 @@ def _make_unit_tooltip(value: str, base_unit: str) -> str:
     Пример: value='25u', base_unit='мкА'  →  '25 мкА — микроампер'
             value='25u', base_unit='А'    →  '25u А — 25 микро-ампер (× 10⁻⁶)'
     """
-    full = _UNIT_FULL.get(base_unit, base_unit)
-    if not value:
-        return f"Единица: {base_unit} ({full})"
-
-    # Пытаемся разобрать число + SI-суффикс из строки значения
-    import re
-    m = re.fullmatch(r"([+-]?[0-9]*\.?[0-9]+)\s*([a-zA-Zмкµ]*)", value.strip())
-    if m:
-        num_str, suffix = m.group(1), m.group(2).lower()
-        if suffix in _SI_PREFIX:
-            prefix_name, power = _SI_PREFIX[suffix]
-            return (
-                f"{num_str} {prefix_name}{base_unit.lower()} ({power} {base_unit})\n"
-                f"Единица: {base_unit} — {full}"
-            )
-
-    return f"Единица: {base_unit} — {full}"
+    unit = _split_value_unit(value, base_unit)[1] if value else base_unit
+    full = _UNIT_FULL.get(unit, _UNIT_FULL.get(base_unit, base_unit))
+    return f"Единица: {unit} — {full}"
 
 
 def _split_value_unit(raw_val: str, base_unit: str) -> tuple[str, str]:
@@ -121,26 +134,13 @@ def _split_value_unit(raw_val: str, base_unit: str) -> tuple[str, str]:
         display_unit — метка единицы для показа рядом с полем
                        (например 'пМЗР', 'мА', 'мкВ')
     """
-    import re
     val = raw_val.strip()
-    m = re.fullmatch(r"([+-]?[0-9]*\.?[0-9]+)\s*([a-zA-Zмкµ]+)?", val)
+    m = re.fullmatch(r"([+-]?[0-9]*\.?[0-9]+)\s*(.*)", val)
     if not m:
         return val, base_unit
     num_str = m.group(1)
-    suffix = m.group(2) or ""
-    if not suffix:
-        return num_str, base_unit
-
-    # 1. Известная составная единица ("mA", "uA", "V", ...)
-    if suffix in _VALUE_UNITS:
-        return num_str, _VALUE_UNITS[suffix]
-
-    # 2. Одиночный SI-префикс → соединяем с базовой единицей конфига
-    if suffix in _SI_SYMBOL:
-        return num_str, _SI_SYMBOL[suffix] + base_unit
-
-    # 3. Ничего не распознали — оставляем как есть, просто убираем суффикс из поля
-    return num_str, suffix + " " + base_unit  # nbsp-пробел для читаемости
+    suffix = (m.group(2) or "").strip()
+    return num_str, _resolve_unit(suffix, base_unit)
 
 
 class DynamicEditFormWidget(QWidget):
@@ -162,6 +162,9 @@ class DynamicEditFormWidget(QWidget):
 
         # Словари для хранения виджетов по ключам полей
         self._widgets: dict[str, QWidget] = {}
+        # Метки и базовые единицы измерения для полей с единицей (нормы)
+        self._unit_labels: dict[str, QLabel] = {}
+        self._field_base_units: dict[str, str] = {}
 
         # Получаем field_configs с учётом типа пластины
         raw_data = data.model_dump()
@@ -330,6 +333,9 @@ class DynamicEditFormWidget(QWidget):
                 widget.setToolTip(tip)
                 row_lay.addWidget(unit_lbl)
                 form.addRow(field_config.label + ":", row_widget)
+                # Запоминаем метку и базовую единицу — пригодится при сборе/шаблонах
+                self._unit_labels[field_config.key] = unit_lbl
+                self._field_base_units[field_config.key] = field_config.unit
             else:
                 form.addRow(field_config.label + ":", widget)
 
@@ -397,6 +403,24 @@ class DynamicEditFormWidget(QWidget):
         edit.setText(str(value) if value not in (None, "") else "")
         return edit
 
+    def _value_with_unit(self, key: str, text: str) -> str:
+        """Нормализует значение поля с единицей: '25'/'25u' → '25 мкА'.
+
+        Единицу берёт из самого значения (если указана) или из базовой единицы
+        поля; синхронизирует метку рядом с полем. Нечисловые значения не трогает.
+        """
+        base = self._field_base_units.get(key)
+        text = text.strip()
+        if not base or not text:
+            return text
+        num, unit = _split_value_unit(text, base)
+        if re.fullmatch(r"[+-]?[0-9]*\.?[0-9]+", num):
+            lbl = self._unit_labels.get(key)
+            if lbl is not None:
+                lbl.setText(unit)
+            return f"{num} {unit}"
+        return text
+
     def collect_data(self) -> BaseModel | None:
         """Собирает и валидирует данные из формы."""
         self._hide_error()
@@ -429,7 +453,9 @@ class DynamicEditFormWidget(QWidget):
                     except ValueError:
                         raw[field_config.key] = 0
                 else:
-                    raw[field_config.key] = text
+                    # Строковые поля норм нормализуем вместе с единицей измерения,
+                    # чтобы '25'/'25u' сохранялись как '25 мкА' и единица не терялась.
+                    raw[field_config.key] = self._value_with_unit(field_config.key, text)
 
         # Добавляем стандартные поля только если виджет для них не создан
         raw_data = self._data.model_dump()
@@ -481,7 +507,7 @@ class DynamicEditFormWidget(QWidget):
             elif isinstance(widget, QPlainTextEdit):
                 val = widget.toPlainText()
             elif isinstance(widget, QLineEdit):
-                val = widget.text()
+                val = self._value_with_unit(fc.key, widget.text())
             else:
                 val = str(raw.get(fc.key, ""))
             labeled.append((fc.label, val))
@@ -498,7 +524,10 @@ class DynamicEditFormWidget(QWidget):
 
     def _show_cross_field_warnings(self, model: BaseModel) -> None:
         """Показывает предупреждения кросс-валидации из модели (жёлтая плашка)."""
-        warnings = model.__dict__.get("_cross_field_warnings", [])
+        if hasattr(model, "cross_field_warnings"):
+            warnings = model.cross_field_warnings()
+        else:
+            warnings = model.__dict__.get("_cross_field_warnings", [])
         if warnings:
             self._warning_label.setText("⚠ " + "\n⚠ ".join(warnings))
             self._warning_label.setVisible(True)
@@ -540,9 +569,7 @@ class DynamicEditFormWidget(QWidget):
                 widget.valueChanged.connect(self._draft_timer.start)
             elif isinstance(widget, QComboBox):
                 widget.currentTextChanged.connect(self._draft_timer.start)
-            elif isinstance(widget, QPlainTextEdit):
-                widget.textChanged.connect(self._draft_timer.start)
-            elif isinstance(widget, QLineEdit):
+            elif isinstance(widget, (QPlainTextEdit, QLineEdit)):
                 widget.textChanged.connect(self._draft_timer.start)
 
     def _autosave_draft(self) -> None:
@@ -574,7 +601,18 @@ class DynamicEditFormWidget(QWidget):
 
             if isinstance(widget, QLineEdit):
                 if not widget.text().strip():
-                    widget.setText(str(tpl_value))
+                    base = self._field_base_units.get(field_config.key)
+                    if base:
+                        # У норм значение может прийти как '25 мкА' — кладём в поле
+                        # числовую часть, а единицу показываем в метке.
+                        num, unit = _split_value_unit(str(tpl_value), base)
+                        widget.setText(num)
+                        lbl = self._unit_labels.get(field_config.key)
+                        if lbl is not None:
+                            lbl.setText(unit)
+                            lbl.setToolTip(_make_unit_tooltip(str(tpl_value), base))
+                    else:
+                        widget.setText(str(tpl_value))
             elif isinstance(widget, QComboBox):
                 if not widget.currentText().strip():
                     idx = widget.findText(str(tpl_value))
@@ -582,9 +620,8 @@ class DynamicEditFormWidget(QWidget):
                         widget.setCurrentIndex(idx)
                     elif widget.isEditable():
                         widget.setCurrentText(str(tpl_value))
-            elif isinstance(widget, QPlainTextEdit):
-                if not widget.toPlainText().strip():
-                    widget.setPlainText(str(tpl_value))
+            elif isinstance(widget, QPlainTextEdit) and not widget.toPlainText().strip():
+                widget.setPlainText(str(tpl_value))
 
     def collect_editable_values(self) -> dict[str, Any]:
         """Возвращает только значения редактируемых полей — для сохранения шаблона."""
@@ -602,5 +639,7 @@ class DynamicEditFormWidget(QWidget):
             elif isinstance(widget, QPlainTextEdit):
                 result[field_config.key] = widget.toPlainText().strip()
             elif isinstance(widget, QLineEdit):
-                result[field_config.key] = widget.text().strip()
+                result[field_config.key] = self._value_with_unit(
+                    field_config.key, widget.text()
+                )
         return result

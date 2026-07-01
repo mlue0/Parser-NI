@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import keyring
+
 from logs.setup import get_logger
 
 logger = get_logger(__name__)

@@ -70,18 +70,18 @@ class ApiClient:
         self._token: str | None = settings.api_token or None
 
     def _create_session(self) -> requests.Session:
-        """Создаёт сессию с retry стратегией."""
+        """Создаёт сессию.
+
+        Повторные попытки (и для 5xx, и для сетевых ошибок) реализованы
+        вручную в ``login()`` / ``send_data()`` — там есть человекочитаемые
+        сообщения и повторная авторизация на 401. Поэтому retry на уровне
+        адаптера отключён (``total=0``), иначе попытки перемножались бы и
+        давали до ``max_retries²`` запросов с двойными задержками.
+        """
         session = requests.Session()
-        
-        # Retry стратегия: повторы для 500, 502, 503, 504 и connection errors
-        retry_strategy = Retry(
-            total=self._max_retries,
-            backoff_factor=self._backoff_factor,
-            status_forcelist=[500, 502, 503, 504],
-            allowed_methods=["GET", "POST", "PUT", "DELETE"],
-            raise_on_status=False,
-        )
-        
+
+        retry_strategy = Retry(total=0, raise_on_status=False)
+
         adapter = HTTPAdapter(max_retries=retry_strategy)
         session.mount("http://", adapter)
         session.mount("https://", adapter)
@@ -170,25 +170,44 @@ class ApiClient:
         
         raise ApiError("Не удалось авторизоваться после всех попыток")
 
-    def send_data(self, data: BaseModel) -> ApiResponse:
-        """
-        Отправляет данные разбраковки на сервер с повторными попытками.
-
-        Args:
-            data: Валидированная Pydantic-модель с данными разбраковки.
-
-        Returns:
-            ApiResponse с результатом операции.
-        """
+    @staticmethod
+    def _build_payload(data: BaseModel) -> dict[str, Any]:
+        """Готовит JSON-payload из Pydantic-модели."""
         try:
-            payload = data.to_api_payload()
+            return data.to_api_payload()  # type: ignore[attr-defined]
         except ValidationError as exc:
             raise ApiValidationError(str(exc)) from exc
 
+    def send_data(self, data: BaseModel) -> ApiResponse:
+        """Отправляет данные разбраковки на сервер (POST /crystals/sorting)."""
+        return self._submit(
+            f"{self.base_url}/crystals/sorting",
+            self._build_payload(data),
+            success_message="Данные успешно сохранены.",
+        )
+
+    def send_plate(self, data: BaseModel) -> ApiResponse:
+        """Добавляет новую пластину в базу (POST /crystals/plates).
+
+        Endpoint адаптируйте под реальный backend — структура запроса/ответа
+        та же, что и у send_data().
+        """
+        return self._submit(
+            f"{self.base_url}/crystals/plates",
+            self._build_payload(data),
+            success_message="Пластина добавлена в базу.",
+        )
+
+    def _submit(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        success_message: str = "Данные успешно сохранены.",
+    ) -> ApiResponse:
+        """Авторизованный POST с ручными повторными попытками и обработкой 401/422/5xx."""
         if not self._token:
             self.login()
 
-        url = f"{self.base_url}/crystals/sorting"
         headers = {
             "Authorization": f"Bearer {self._token}",
             "Content-Type": "application/json",
@@ -239,7 +258,7 @@ class ApiClient:
                 except ValueError:
                     body = {"raw": response.text}
 
-                message = "Данные успешно сохранены."
+                message = success_message
                 if body and body.get("message"):
                     message = str(body["message"])
 

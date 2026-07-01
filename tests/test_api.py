@@ -7,10 +7,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from api.client import ApiClient, ApiResponse
+from api.client import ApiClient
 from api.exceptions import ApiAuthError, ApiConnectionError, ApiError, ApiValidationError
 from config.settings import Settings
-from models.crystal_data import CrystalData, SORTING_TARGETS
+from models.crystal_data import SORTING_TARGETS, CrystalData
 
 
 def _settings(**overrides) -> Settings:

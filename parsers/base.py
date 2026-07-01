@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import mimetypes
+import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -140,15 +141,41 @@ class BaseParser(ABC):
         logger.info(f"Распарсено {len(result)} полей из файла")
         return result
 
+    # Числовые строки: целое (без потери ведущих нулей) и дробное.
+    _INT_RE = re.compile(r"[+-]?\d+")
+    _FLOAT_RE = re.compile(r"[+-]?(?:\d+\.\d*|\.\d+|\d+\.\d+)")
+
     @staticmethod
     def _clean_value(value: Any) -> Any:
         if value is None or (isinstance(value, float) and pd.isna(value)):
             return None
         if isinstance(value, str):
             text = value.strip()
-            return text if text else None
+            if not text:
+                return None
+            return BaseParser._coerce_numeric_str(text)
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             if float(value).is_integer():
                 return int(value)
             return value
         return value
+
+    @staticmethod
+    def _coerce_numeric_str(text: str) -> Any:
+        """Приводит чисто числовую строку к int/float, иначе оставляет строку.
+
+        Целое возвращается только если каноническая форма совпадает с исходной
+        (``"007"`` остаётся строкой — иначе потеряется ведущий ноль идентификатора).
+        Значения с единицами («25u», «1.5 В») и любые нечисловые строки
+        остаются строками без изменений.
+        """
+        if BaseParser._INT_RE.fullmatch(text):
+            n = int(text)
+            return n if str(n) == text else text
+        if BaseParser._FLOAT_RE.fullmatch(text):
+            try:
+                f = float(text)
+            except ValueError:
+                return text
+            return int(f) if f.is_integer() else f
+        return text

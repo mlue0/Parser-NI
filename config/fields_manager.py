@@ -105,8 +105,24 @@ class FieldsManager:
 
     def __init__(self, config_path: Path | str | None = None):
         if config_path is None:
-            from config.settings import BASE_DIR
+            from config.settings import BASE_DIR, RESOURCE_DIR
             config_path = BASE_DIR / "config" / "fields_config.json"
+
+            # При первом запуске (особенно в собранном .exe) конфига рядом
+            # с приложением ещё нет — переносим дефолтный из бандла в
+            # записываемый каталог, чтобы его можно было редактировать.
+            if not config_path.exists():
+                bundled = RESOURCE_DIR / "config" / "fields_config.json"
+                if bundled.exists() and bundled.resolve() != config_path.resolve():
+                    try:
+                        config_path.parent.mkdir(parents=True, exist_ok=True)
+                        config_path.write_text(
+                            bundled.read_text(encoding="utf-8"), encoding="utf-8"
+                        )
+                        logger.info("Дефолтный конфиг полей перенесён: %s", config_path)
+                    except OSError as exc:
+                        logger.warning("Не удалось перенести конфиг из бандла: %s", exc)
+                        config_path = bundled  # читаем хотя бы из бандла
 
         self.config_path = Path(config_path)
         self.groups: dict[str, FieldGroup] = {}
@@ -121,7 +137,7 @@ class FieldsManager:
             return
 
         try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
+            with self.config_path.open(encoding="utf-8") as f:
                 config = json.load(f)
 
             # Миграция схемы если версия устарела
@@ -192,7 +208,7 @@ class FieldsManager:
         default_path = self.config_path.parent / "fields_config.default.json"
         if default_path.exists():
             try:
-                with open(default_path, encoding="utf-8") as f:
+                with default_path.open(encoding="utf-8") as f:
                     new_config = json.load(f)
             except Exception:
                 new_config = config  # fallback
@@ -213,7 +229,7 @@ class FieldsManager:
 
         # Сохраняем смигрированный конфиг
         try:
-            with open(self.config_path, "w", encoding="utf-8") as f:
+            with self.config_path.open("w", encoding="utf-8") as f:
                 json.dump(new_config, f, ensure_ascii=False, indent=2)
         except OSError as exc:
             logger.error("Не удалось сохранить смигрированный конфиг: %s", exc)
@@ -245,7 +261,7 @@ class FieldsManager:
 
         try:
             self.config_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.config_path, "w", encoding="utf-8") as f:
+            with self.config_path.open("w", encoding="utf-8") as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
             logger.info(f"Конфигурация сохранена в {self.config_path}")
             # Сбрасываем синглтон — при следующем обращении конфиг перечитается
@@ -384,9 +400,7 @@ class FieldsManager:
             if key in data and data[key] is not None:
                 value = data[key]
                 # Проверяем что значение не пустое
-                if isinstance(value, str) and value.strip():
-                    return "analog"
-                elif isinstance(value, (int, float)) and value != 0:
+                if isinstance(value, str) and value.strip() or isinstance(value, (int, float)) and value != 0:
                     return "analog"
         
         return "digital"
