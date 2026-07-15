@@ -41,16 +41,17 @@ def main() -> int:
     app.setApplicationName("SimpleMeasure")
     app.setOrganizationName("SimpleMeasure")
 
-    # Применяем тему согласно сохранённой настройке (light по умолчанию).
-    # Единый источник правды — флаг dark_theme в app_state.json.
     from ui.theme import load_and_apply_theme
     load_and_apply_theme(app)
 
-    # Стартовое окно выбора режима: «Добавить пластину» / «Разбраковать пластину».
     window = LauncherWindow()
     window.show()
 
     return app.exec()
+
+
+def run():
+    return main()
 
 
 if __name__ == "__main__":
