@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QMessageBox
 
 from models.crystal_data import CrystalData
 from ui.confirm_dialog import ConfirmDialog

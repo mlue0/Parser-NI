@@ -14,7 +14,6 @@ from parsers.excel_parser import ExcelParser
 from parsers.registry import get_parser, supported_extensions
 from parsers.txt_parser import TxtParser
 
-
 # ── Тестовые данные ────────────────────────────────────────────
 SAMPLE_ROWS = [
     ("Годные кристаллы", 100),
@@ -253,6 +252,8 @@ def test_cross_validation_sum_mismatch():
         "defective_crystals": 5,
         "total_crystals": 100,  # 90+5 ≠ 100
         "plate_marking": "HV23",
+        "plate_number": "P-1",
+        "bmk_batch_number": "BMK-1",
         "sorting_type": "Разбраковка NI",
         "sorting_target": "ПР-ОВ",
     }
@@ -273,6 +274,8 @@ def test_cross_validation_defect_sum_exceeds_bad():
         "defect_contact": 3,
         "defect_icc": 4,  # 3+4=7 > 5
         "plate_marking": "HV23",
+        "plate_number": "P-1",
+        "bmk_batch_number": "BMK-1",
         "sorting_type": "Разбраковка NI",
         "sorting_target": "ПР-ОВ",
     }
@@ -293,6 +296,8 @@ def test_cross_validation_no_warnings_when_correct():
         "defect_contact": 2,
         "defect_icc": 3,
         "plate_marking": "HV23",
+        "plate_number": "P-1",
+        "bmk_batch_number": "BMK-1",
         "sorting_type": "Разбраковка NI",
         "sorting_target": "ПР-ОВ",
     }

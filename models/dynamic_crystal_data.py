@@ -57,11 +57,8 @@ def create_dynamic_crystal_data_model(data: dict[str, Any]) -> type[BaseModel]:
         
         # Определяем дефолтное значение
         if field_config.required:
-            if field_config.default_value is not None:
-                default = field_config.default_value
-            else:
-                # Для обязательных полей без дефолта используем ...
-                default = ...
+            # Обязательное поле без дефолта → ... (Pydantic «required»)
+            default = field_config.default_value if field_config.default_value is not None else ...
         else:
             # Для опциональных полей используем дефолт или 0/""
             if field_config.default_value is not None:
@@ -104,7 +101,12 @@ def create_dynamic_crystal_data_model(data: dict[str, Any]) -> type[BaseModel]:
     # Базовый класс с валидаторами — единственный надёжный способ в Pydantic v2
     # для добавления валидаторов к динамическим моделям
     class _CrystalBase(BaseModel):
-        model_config = {"arbitrary_types_allowed": True}
+        # coerce_numbers_to_str: парсеры теперь возвращают числа типизированно
+        # (напр. номер партии 240711 как int), а строковые поля должны их принять.
+        model_config = {
+            "arbitrary_types_allowed": True,
+            "coerce_numbers_to_str": True,
+        }
 
         @field_validator("sorting_type", mode="before", check_fields=False)
         @classmethod
@@ -124,7 +126,7 @@ def create_dynamic_crystal_data_model(data: dict[str, Any]) -> type[BaseModel]:
             return v
 
         @model_validator(mode="after")
-        def _val_crystal_sums(self) -> "_CrystalBase":
+        def _val_crystal_sums(self) -> _CrystalBase:
             data = self.__dict__
             good = data.get("good_crystals")
             bad = data.get("defective_crystals")
@@ -183,9 +185,16 @@ def create_dynamic_crystal_data_model(data: dict[str, Any]) -> type[BaseModel]:
         return result
     
     DynamicModel.labeled_values = labeled_values
-    
+
+    # Доступ к предупреждениям кросс-валидации (заполняются в _val_crystal_sums)
+    def cross_field_warnings(self) -> list[str]:
+        """Возвращает предупреждения кросс-валидации (может быть пустым)."""
+        return list(self.__dict__.get("_cross_field_warnings", []))
+
+    DynamicModel.cross_field_warnings = cross_field_warnings
+
     logger.info(f"Создана динамическая модель с {len(model_fields)} полями")
-    
+
     return DynamicModel
 
 
@@ -202,6 +211,12 @@ def get_field_label(key: str) -> str:
     return FIELD_LABELS.get(key, key)
 
 
+# Кэш алиасов. Привязан к экземпляру FieldsManager: после reset_fields_manager()
+# создаётся новый экземпляр, и кэш автоматически считается недействительным.
+_aliases_cache: dict[str, str] | None = None
+_aliases_cache_owner: object | None = None
+
+
 def get_field_aliases() -> dict[str, str]:
     """Возвращает словарь {русское_название: key} для парсинга.
 
@@ -209,8 +224,14 @@ def get_field_aliases() -> dict[str, str]:
     - метки полей из fields_config.json (label → key)
     - дополнительные синонимы для норм (файлы используют «Норма по X» и «Норма X»)
     - стандартные системные поля
+
+    Результат кэшируется до пересоздания менеджера полей.
     """
+    global _aliases_cache, _aliases_cache_owner
     fields_manager = get_fields_manager()
+    if _aliases_cache is not None and _aliases_cache_owner is fields_manager:
+        return _aliases_cache
+
     all_fields = fields_manager.get_all_fields()
 
     aliases: dict[str, str] = {}
@@ -240,6 +261,22 @@ def get_field_aliases() -> dict[str, str]:
         "Норма по U0 в режиме АЦП":  "norm_u0_adc",
         "Норма U0 АЦП":              "norm_u0_adc",
         "Норма U0 в режиме АЦП":     "norm_u0_adc",
+        "Норма по IoCC":             "norm_iocc",
+        "Норма IoCC":                "norm_iocc",
+        "Норма по IIL":              "norm_iil",
+        "Норма IIL":                 "norm_iil",
+        "Норма по IIH":              "norm_iih",
+        "Норма IIH":                 "norm_iih",
+        "Норма по IOH":              "norm_ioh",
+        "Норма IOH":                 "norm_ioh",
+        "Норма по IOL":              "norm_iol",
+        "Норма IOL":                 "norm_iol",
+        "Норма по UoL":              "norm_uol",
+        "Норма UoL":                 "norm_uol",
+        "Норма по UoH":              "norm_uoh",
+        "Норма UoH":                 "norm_uoh",
+        "Норма по Ro":               "norm_ro",
+        "Норма Ro":                  "norm_ro",
     }
     aliases.update(_NORM_ALIASES)
 
@@ -250,4 +287,6 @@ def get_field_aliases() -> dict[str, str]:
         "Комментарий": "comment",
     })
 
+    _aliases_cache = aliases
+    _aliases_cache_owner = fields_manager
     return aliases

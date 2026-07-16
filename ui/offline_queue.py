@@ -55,7 +55,6 @@ def flush_queue(api_client) -> tuple[int, int]:
     Returns:
         (sent, failed) — количество успешно и неуспешно отправленных.
     """
-    from pydantic import BaseModel
 
     queue = _load_queue()
     if not queue:

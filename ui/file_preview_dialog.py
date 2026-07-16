@@ -61,23 +61,33 @@ class FilePreviewDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+    # Форматы, для которых текстовый предпросмотр бессмысленен (двоичные).
+    _BINARY_SUFFIXES = (".xlsx", ".xls")
+
     @staticmethod
     def _read_preview(path: Path) -> str:
         """Читает первые _MAX_LINES строк или _MAX_BYTES байт."""
+        if path.suffix.lower() in FilePreviewDialog._BINARY_SUFFIXES:
+            return "(Двоичный формат — предпросмотр недоступен. Данные будут разобраны при загрузке.)"
         try:
             raw = path.read_bytes()[:_MAX_BYTES]
+            # latin-1 декодирует любые байты, поэтому отдельно проверяем
+            # на наличие нулевых байтов — типичный признак двоичного файла.
+            if b"\x00" in raw:
+                return "(Двоичный файл — предпросмотр недоступен)"
+
+            text = ""
             for enc in ("utf-8-sig", "cp1251", "latin-1"):
                 try:
                     text = raw.decode(enc)
                     break
                 except UnicodeDecodeError:
                     continue
-            else:
-                return "(Бинарный файл — предпросмотр недоступен)"
 
-            lines = text.splitlines()[:_MAX_LINES]
-            suffix = f"\n… (ещё {len(text.splitlines()) - _MAX_LINES} строк)" \
-                if len(text.splitlines()) > _MAX_LINES else ""
+            all_lines = text.splitlines()
+            lines = all_lines[:_MAX_LINES]
+            extra = len(all_lines) - _MAX_LINES
+            suffix = f"\n… (ещё {extra} строк)" if extra > 0 else ""
             return "\n".join(lines) + suffix
         except OSError as exc:
             return f"Не удалось прочитать файл: {exc}"

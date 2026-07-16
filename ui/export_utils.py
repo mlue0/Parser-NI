@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from logs.setup import get_logger
 
@@ -112,17 +111,19 @@ def _export_pdf_qprinter(
     title: str,
 ) -> None:
     """Fallback: генерация PDF через QTextDocument + QPrinter."""
+    from html import escape
+
     from PyQt6.QtGui import QTextDocument
     from PyQt6.QtPrintSupport import QPrinter
 
     rows = "".join(
         f"<tr style='background:{'#f0f4f8' if i%2==0 else 'white'}'>"
-        f"<td style='padding:6px;border:1px solid #ccc'>{lbl}</td>"
-        f"<td style='padding:6px;border:1px solid #ccc'>{val}</td></tr>"
+        f"<td style='padding:6px;border:1px solid #ccc'>{escape(str(lbl))}</td>"
+        f"<td style='padding:6px;border:1px solid #ccc'>{escape(str(val))}</td></tr>"
         for i, (lbl, val) in enumerate(labeled_values)
     )
     html = (
-        f"<h2 style='color:#1a3a5c'>{title}</h2>"
+        f"<h2 style='color:#1a3a5c'>{escape(str(title))}</h2>"
         "<table style='border-collapse:collapse;width:100%'>"
         "<tr style='background:#1a3a5c;color:white'>"
         "<th style='padding:8px'>Поле</th><th style='padding:8px'>Значение</th></tr>"

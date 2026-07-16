@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from config.fields_manager import FieldConfig, FieldGroup, get_fields_manager
+from config.fields_manager import FieldConfig, get_fields_manager
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def test_get_all_fields(fields_manager):
 
 def test_get_fields_by_group(fields_manager):
     """Тестирует получение полей конкретной группы."""
-    fields = fields_manager.get_fields_by_group("required_base")
+    fields = fields_manager.get_fields_by_group("params_identity")
     assert isinstance(fields, list)
     assert len(fields) > 0
 
@@ -106,9 +106,11 @@ def test_get_fields_from_data_analog(fields_manager):
     
     fields = fields_manager.get_fields_from_data(data)
     field_keys = {f.key for f in fields}
-    
-    # Для аналоговой пластины должны быть аналоговые поля
-    # если включены в show_only_parsed_fields
+
+    # Обязательные поля всегда присутствуют; для аналоговой пластины
+    # доступны аналоговые нормы.
+    assert "plate_marking" in field_keys
+    assert "norm_inl" in field_keys
 
 
 def test_get_field_aliases(fields_manager):

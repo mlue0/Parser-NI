@@ -14,7 +14,6 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QComboBox,
     QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -338,7 +337,7 @@ class EditFormWidget(QWidget):
 
     def highlight_invalid_fields(self) -> None:
         """Подсвечивает пустые обязательные текстовые поля."""
-        for field, edit in self._line_edits.items():
+        for edit in self._line_edits.values():
             if not edit.text().strip():
                 edit.setStyleSheet(
                     "background-color: rgba(255,255,255,0.05);"

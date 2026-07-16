@@ -124,8 +124,14 @@ def apply_dark_theme(app: QApplication) -> None:
         QPushButton:disabled { color: #666; }
 
         /* ── Группы и метки ── */
-        QGroupBox { border: 1px solid #555; border-radius: 4px; margin-top: 8px; color: #e0e0e0; }
-        QGroupBox::title { color: #aaa; }
+        QGroupBox {
+            border: 1px solid #555; border-radius: 6px;
+            margin-top: 16px; padding-top: 10px; color: #e0e0e0;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin; subcontrol-position: top left;
+            left: 10px; padding: 0 4px; color: #aaa;
+        }
         QLabel { color: #e0e0e0; }
 
         /* ── Таблицы ── */

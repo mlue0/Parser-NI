@@ -21,7 +21,6 @@ class _PingWorker(QThread):
     def run(self) -> None:
         try:
             from api.client import ApiClient
-            from api.exceptions import ApiError
             client = ApiClient(self._settings, timeout=5.0, max_retries=1)
             client.login()
             self.result.emit(True, self._settings.api_url)

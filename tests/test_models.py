@@ -4,8 +4,8 @@ import pytest
 from pydantic import ValidationError
 
 from models.crystal_data import (
-    CrystalData,
     SORTING_TARGETS,
+    CrystalData,
     get_correction_options,
     get_firmware_options,
     get_initial_crystals_default,

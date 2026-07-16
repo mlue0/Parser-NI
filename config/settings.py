@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -11,17 +12,39 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-import os
 
 
-def get_base_dir() -> Path:
-    """Корневая директория проекта (учитывает сборку PyInstaller)."""
+def get_data_dir() -> Path:
+    """Записываемый каталог приложения (.env, app_state.json, logs).
+
+    В сборке PyInstaller это каталог рядом с исполняемым файлом (он
+    доступен на запись), в режиме разработки — корень проекта.
+    """
     if getattr(sys, "frozen", False):
         return Path(sys.executable).parent
     return Path(__file__).resolve().parent.parent
 
 
-BASE_DIR = get_base_dir()
+def get_resource_dir() -> Path:
+    """Каталог с упакованными ресурсами (read-only).
+
+    В onefile-сборке PyInstaller распаковывает datas во временный каталог
+    ``sys._MEIPASS``, а не рядом с .exe. Дефолтные ресурсы (например,
+    fields_config.json) нужно читать именно отсюда.
+    """
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            return Path(meipass)
+        return Path(sys.executable).parent
+    return Path(__file__).resolve().parent.parent
+
+
+# Сохранено для обратной совместимости (== get_data_dir).
+get_base_dir = get_data_dir
+
+BASE_DIR = get_data_dir()
+RESOURCE_DIR = get_resource_dir()
 ENV_PATH = BASE_DIR / ".env"
 STATE_PATH = BASE_DIR / "config" / "app_state.json"
 LOGS_DIR = BASE_DIR / "logs"

@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import os
-
-from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeySequence
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -25,7 +22,6 @@ from PyQt6.QtWidgets import (
 )
 
 from config.credentials import (
-    clear_credentials,
     get_login,
     get_password,
     get_token,
@@ -98,6 +94,8 @@ class SettingsDialog(QDialog):
 
         url_group = QGroupBox("Адрес сервера")
         url_form = QFormLayout(url_group)
+        # Верхний отступ, чтобы первая строка не перекрывала заголовок группы
+        url_form.setContentsMargins(12, 18, 12, 12)
         self._url_edit = QLineEdit()
         self._url_edit.setPlaceholderText("https://api.example.com")
         url_form.addRow("API URL:", self._url_edit)
@@ -105,6 +103,7 @@ class SettingsDialog(QDialog):
 
         auth_group = QGroupBox("Авторизация")
         auth_layout = QVBoxLayout(auth_group)
+        auth_layout.setContentsMargins(12, 18, 12, 12)
 
         self._radio_token = QRadioButton("API-токен (Bearer)")
         self._radio_token.setChecked(True)
@@ -204,6 +203,7 @@ class SettingsDialog(QDialog):
         # ── Тип пластины ──
         plate_group = QGroupBox("Тип пластины по умолчанию")
         plate_layout = QVBoxLayout(plate_group)
+        plate_layout.setContentsMargins(12, 18, 12, 12)
 
         hint = QLabel(
             "Определяет, какой набор полей (цифровой или аналоговый) показывать в форме.\n"
@@ -233,6 +233,7 @@ class SettingsDialog(QDialog):
         # ── Поведение ──
         misc_group = QGroupBox("Поведение")
         misc_form = QFormLayout(misc_group)
+        misc_form.setContentsMargins(12, 18, 12, 12)
 
         state = _load_state()
 
@@ -332,6 +333,7 @@ class SettingsDialog(QDialog):
 
         # Применяем тему немедленно
         from PyQt6.QtWidgets import QApplication
+
         from ui.theme import apply_dark_theme, apply_light_theme
         if dark:
             apply_dark_theme(QApplication.instance())
